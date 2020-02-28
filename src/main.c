@@ -35,6 +35,15 @@ void catchSignals() {
   sigaction(SIGINT, &action, NULL);
 }
 
+const char* getDeviceName(MidiDevice device) {
+  if (strcmp("Nord Stage 2 MIDI Output", device.info->name) == 0
+    || strcmp("Nord Stage 2 MIDI Input", device.info->name) == 0) {
+    return "Nord Stage 2";
+  }
+
+  return device.info->name;
+}
+
 void pollEvents(PtTimestamp timestamp, void* data) {
   MidiDevices* devices = (MidiDevices*) data;
   PmEvent buffer[BUFFER_SIZE];
@@ -46,7 +55,10 @@ void pollEvents(PtTimestamp timestamp, void* data) {
       printf("%s\n", Pm_GetErrorText(error));
     } else if (error > 0) {
       for (int j = 0; j < devices->outputLength; j++) {
-        Pm_Write(devices->outputDevices[j].stream, buffer, error);
+        // Don’t send the event back to the device in originally comes from
+        if (strcmp(getDeviceName(devices->outputDevices[j]), getDeviceName(devices->inputDevices[i])) != 0) {
+          Pm_Write(devices->outputDevices[j].stream, buffer, error);
+        }
       }
     }
   }
