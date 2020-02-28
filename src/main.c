@@ -8,16 +8,18 @@
 
 #define BUFFER_SIZE 1024
 
-typedef struct MidiInputDevice {
+typedef struct MidiDevice {
   int id;
   const PmDeviceInfo* info;
   PortMidiStream* stream;
-} MidiInputDevice;
+} MidiDevice;
 
-typedef struct MidiInputDevices {
-  int length;
-  MidiInputDevice* devices;
-} MidiInputDevices;
+typedef struct MidiDevices {
+  int inputLength;
+  MidiDevice* inputDevices;
+  int outputLength;
+  MidiDevice* outputDevices;
+} MidiDevices;
 
 volatile sig_atomic_t done = 0;
 
@@ -34,17 +36,17 @@ void catchSignals() {
 }
 
 void pollEvents(PtTimestamp timestamp, void* data) {
-  MidiInputDevices* inputDevices = (MidiInputDevices*) data;
+  MidiDevices* devices = (MidiDevices*) data;
   PmEvent buffer[BUFFER_SIZE];
   PmError error;
 
-  for (int i = 0; i < inputDevices->length; i++) {
-    error = Pm_Read(inputDevices->devices[i].stream, buffer, BUFFER_SIZE);
+  for (int i = 0; i < devices->inputLength; i++) {
+    error = Pm_Read(devices->inputDevices[i].stream, buffer, BUFFER_SIZE);
     if (error < 0) {
       printf("%s\n", Pm_GetErrorText(error));
     } else if (error > 0) {
-      for (int j = 0; j < error; j++) {
-        printf("Event(%d,%d,%d)\n", Pm_MessageStatus(buffer[j].message), Pm_MessageData1(buffer[j].message), Pm_MessageData2(buffer[j].message));
+      for (int j = 0; j < devices->outputLength; j++) {
+        Pm_Write(devices->outputDevices[j].stream, buffer, error);
       }
     }
   }
@@ -54,25 +56,35 @@ int main(int argc, const char **argv) {
   int devicesCount = Pm_CountDevices();
   const PmDeviceInfo* info = NULL;
 
-  MidiInputDevices inputDevices = { 0, NULL };
+  MidiDevices devices = { 0, NULL, 0, NULL };
 
   catchSignals();
 
-  Pt_Start(10, &pollEvents, &inputDevices);
+  Pt_Start(10, &pollEvents, &devices);
 
   for (int i = 0; i < devicesCount; i++) {
     info = Pm_GetDeviceInfo(i);
 
     if (info->input) {
-      inputDevices.length++;
+      devices.inputLength++;
 
-      inputDevices.devices = realloc(inputDevices.devices, sizeof(MidiInputDevice) * inputDevices.length);
-      inputDevices.devices[inputDevices.length - 1].id = i;
-      inputDevices.devices[inputDevices.length - 1].info = info;
-      inputDevices.devices[inputDevices.length - 1].stream = NULL;
+      devices.inputDevices = realloc(devices.inputDevices, sizeof(MidiDevice) * devices.inputLength);
+      devices.inputDevices[devices.inputLength - 1].id = i;
+      devices.inputDevices[devices.inputLength - 1].info = info;
+      devices.inputDevices[devices.inputLength - 1].stream = NULL;
 
-      Pm_OpenInput(&inputDevices.devices[inputDevices.length - 1].stream, i, NULL, BUFFER_SIZE, NULL, NULL);
+      Pm_OpenInput(&devices.inputDevices[devices.inputLength - 1].stream, i, NULL, BUFFER_SIZE, NULL, NULL);
       printf("Found input: %s\n", info->name);
+    } else if (info->output) {
+      devices.outputLength++;
+
+      devices.outputDevices = realloc(devices.outputDevices, sizeof(MidiDevice) * devices.outputLength);
+      devices.outputDevices[devices.outputLength - 1].id = i;
+      devices.outputDevices[devices.outputLength - 1].info = info;
+      devices.outputDevices[devices.outputLength - 1].stream = NULL;
+
+      Pm_OpenOutput(&devices.outputDevices[devices.outputLength - 1].stream, i, NULL, BUFFER_SIZE, NULL, NULL, 0);
+      printf("Found output: %s\n", info->name);
     }
   }
 
@@ -80,7 +92,8 @@ int main(int argc, const char **argv) {
     sleep(1);
   }
 
-  free(inputDevices.devices);
+  free(devices.inputDevices);
+  free(devices.outputDevices);
 
   return 0;
 }
