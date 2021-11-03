@@ -5,3 +5,12 @@ version = 3
 [[package]]
 name = "midi-hub"
 version = "0.1.0"
+dependencies = [
+ "portmidi",
+]
+
+[[package]]
+name = "portmidi"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17eb5854ec067149b738c1d99a4b9af927679fe5bb2ef88542fafb6177dc2557"
