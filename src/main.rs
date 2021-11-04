@@ -1,7 +1,10 @@
 extern crate portmidi as pm;
 
 use portmidi::{DeviceInfo, MidiEvent, PortMidi};
+
 use std::env;
+use std::thread;
+use std::time::Duration;
 
 fn main() {
     let result = args().and_then(|(input_name, output_name)| {
@@ -56,6 +59,8 @@ fn select_devices(context: &PortMidi, input_name: &String, output_name: &String)
 }
 
 fn listen_to_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent, String> {
+    let duration = Duration::from_millis(10);
+
     println!("Waiting for a MIDI event to be emitted by {}", device.name());
     return context.input_port(device, 1024).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|port| {
         let mut event: Result<MidiEvent, String> = Err(String::from("No MIDI event has been emitted"));
@@ -64,6 +69,7 @@ fn listen_to_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent,
                 Ok(Some(e)) => event = Ok(e),
                 _ => {},
             }
+            thread::sleep(duration);
         }
         return event;
     });
