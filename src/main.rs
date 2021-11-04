@@ -6,11 +6,15 @@ use std::env;
 use std::thread;
 use std::time::Duration;
 
+const BUFFER_SIZE: usize = 1024;
+
 fn main() {
     let result = args().and_then(|(input_name, output_name)| {
         return context().and_then(|context| {
-            return select_devices(&context, &input_name, &output_name).and_then(|(input_device, _output_device)| {
-                return listen_to_device(&context, input_device);
+            return select_devices(&context, &input_name, &output_name).and_then(|(input_device, output_device)| {
+                return read_from_device(&context, input_device).and_then(|event| {
+                    return write_to_device(&context, output_device, event);
+                });
             });
         });
     });
@@ -58,11 +62,11 @@ fn select_devices(context: &PortMidi, input_name: &String, output_name: &String)
     });
 }
 
-fn listen_to_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent, String> {
+fn read_from_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent, String> {
     let duration = Duration::from_millis(10);
 
     println!("Waiting for a MIDI event to be emitted by {}", device.name());
-    return context.input_port(device, 1024).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|port| {
+    return context.input_port(device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|port| {
         let mut event: Result<MidiEvent, String> = Err(String::from("No MIDI event has been emitted"));
         while event.is_err() {
             match port.read() {
@@ -72,5 +76,11 @@ fn listen_to_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent,
             thread::sleep(duration);
         }
         return event;
+    });
+}
+
+fn write_to_device(context: &PortMidi, device: DeviceInfo, event: MidiEvent) -> Result<(), String> {
+    return context.output_port(device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the output port: {}", err)).and_then(|port| {
+        return port.write_event(event).map_err(|err| format!("Error when writing the event: {}", err));
     });
 }
