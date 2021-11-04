@@ -1,95 +1,70 @@
 extern crate portmidi as pm;
 
-use portmidi::{DeviceInfo, InputPort, MidiEvent, PortMidi, Result};
+use portmidi::{DeviceInfo, MidiEvent, PortMidi};
 use std::env;
 
 fn main() {
+    let result = args().and_then(|(input_name, output_name)| {
+        return context().and_then(|context| {
+            return select_devices(&context, &input_name, &output_name).and_then(|(input_device, _output_device)| {
+                return listen_to_device(&context, input_device);
+            });
+        });
+    });
+
+    match result {
+        Ok(_) => println!("Completed successfully. Bye!"),
+        Err(err) => println!("{}", err),
+    }
+}
+
+fn args() -> Result<(String, String), String> {
     let args: Vec<String> = env::args().collect();
-
-    match &args[1..] {
-        [input_name, output_name] => {
-            match pm::PortMidi::new() {
-                Ok(context) => {
-                    let devices = devices(&context);
-
-                    match select_devices(&devices, &input_name, &output_name) {
-                        Some((input,  output)) => {
-                            in_separator(|| {
-                                println!("Selected MIDI devices:");
-                                println!("{}", input);
-                                println!("{}", output);
-                            });
-
-                            match DeviceInfo::new(input.id()) {
-                                Ok(device) => {
-                                    let event = listen_to_device(&context, device);
-                                    println!("Event: {:?}", event);
-                                },
-                                _ => println!("Could not find MIDI device with id: {}", input.id()),
-                            }
-                        },
-                        _ => println!("No devices matching both the input name and output name")
-                    }
-                },
-                _ => println!("Could not initialize MIDI context"),
-            }
-        },
-        _ => println!("Usage: ./midi-hub <input-name> <output-name>"),
+    return match &args[1..] {
+        [input_name, output_name] => Ok((String::from(input_name), String::from(output_name))),
+        _ => Err(String::from("Usage: ./midi-hub <input-name> <output-name>")),
     }
 }
 
-fn in_separator<F: Fn()>(f: F) {
-    println!("====================");
-    f();
-    println!("====================");
+fn context() -> Result<PortMidi, String> {
+    return pm::PortMidi::new().map_err(|err| format!("Could not initialize MIDI context: {}", err));
 }
 
-fn devices(context: &PortMidi) -> Vec<DeviceInfo> {
-    let devices: Result<Vec<DeviceInfo>> = context.devices();
-    let unwrapped_devices = devices.unwrap_or_else(|err| {
-        println!("Error: {}", err);
-        return Vec::new();
-    });
+fn select_devices(context: &PortMidi, input_name: &String, output_name: &String) -> Result<(DeviceInfo, DeviceInfo), String> {
+    return context.devices().map_err(|err| format!("Error when retrieving the MIDI devices: {}", err)).and_then(|devices| {
+        if devices.len() == 0 {
+            return Err(String::from("No MIDI devices are connected."));
+        }
 
-    in_separator(|| {
-        if unwrapped_devices.len() == 0 {
-            println!("No MIDI devices are connected!");
-        } else {
-            println!("MIDI devices:");
-            for device in &unwrapped_devices {
-                println!("{}", device);
+        let mut selected_input_device = Err(format!("Could not find an input device with the name {}", input_name));
+        let mut selected_output_device = Err(format!("Could not find an output device with the name {}", output_name));
+
+        println!("MIDI devices:");
+        for device in devices {
+            println!("{}", device);
+            if selected_input_device.is_err() && device.is_input() && device.name() == input_name {
+                selected_input_device = Ok(device);
+            } else if selected_output_device.is_err() && device.is_output() && device.name() == output_name {
+                selected_output_device = Ok(device);
             }
         }
+
+        return selected_input_device.and_then(|input| {
+            return selected_output_device.map(|output| (input, output));
+        });
     });
-
-    return unwrapped_devices;
 }
 
-fn select_devices<'a>(devices: &'a Vec<DeviceInfo>, input_name: &'a str, output_name: &'a str) -> Option<(&'a DeviceInfo, &'a DeviceInfo)> {
-    let mut selected_input_device = None;
-    let mut selected_output_device = None;
-
-    for device in devices {
-        if selected_input_device.is_none() && device.is_input() && device.name() == input_name {
-            selected_input_device = Some(device);
-        } else if selected_output_device.is_none() && device.is_output() && device.name() == output_name {
-            selected_output_device = Some(device);
+fn listen_to_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent, String> {
+    println!("Waiting for a MIDI event to be emitted by {}", device.name());
+    return context.input_port(device, 1024).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|port| {
+        let mut event: Result<MidiEvent, String> = Err(String::from("No MIDI event has been emitted"));
+        while event.is_err() {
+            match port.read() {
+                Ok(Some(e)) => event = Ok(e),
+                _ => {},
+            }
         }
-    }
-
-    return match (selected_input_device, selected_output_device) {
-        (Some(input), Some(output)) => Some((input, output)),
-        _ => None,
-    };
-}
-
-fn listen_to_device(context: &PortMidi, device: DeviceInfo) -> MidiEvent {
-    let mut event: Option<MidiEvent> = None;
-    let ref mut input_port: Option<InputPort> = context.input_port(device, 1024).ok();
-
-    while event.is_none() {
-        event = input_port.as_mut().and_then(|port| port.read().ok().flatten());
-    }
-
-    return event.unwrap();
+        return event;
+    });
 }
