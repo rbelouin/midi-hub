@@ -1,6 +1,6 @@
 extern crate portmidi as pm;
 
-use portmidi::{DeviceInfo, MidiEvent, PortMidi};
+use portmidi::{DeviceInfo, PortMidi};
 
 use std::env;
 use std::thread;
@@ -12,9 +12,7 @@ fn main() {
     let result = args().and_then(|(input_name, output_name)| {
         return context().and_then(|context| {
             return select_devices(&context, &input_name, &output_name).and_then(|(input_device, output_device)| {
-                return read_from_device(&context, input_device).and_then(|event| {
-                    return write_to_device(&context, output_device, event);
-                });
+                return connect_devices(&context, input_device, output_device);
             });
         });
     });
@@ -62,25 +60,21 @@ fn select_devices(context: &PortMidi, input_name: &String, output_name: &String)
     });
 }
 
-fn read_from_device(context: &PortMidi, device: DeviceInfo) -> Result<MidiEvent, String> {
+fn connect_devices(context: &PortMidi, input_device: DeviceInfo, output_device: DeviceInfo) -> Result<(), String> {
     let duration = Duration::from_millis(10);
 
-    println!("Waiting for a MIDI event to be emitted by {}", device.name());
-    return context.input_port(device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|port| {
-        let mut event: Result<MidiEvent, String> = Err(String::from("No MIDI event has been emitted"));
-        while event.is_err() {
-            match port.read() {
-                Ok(Some(e)) => event = Ok(e),
-                _ => {},
+    println!("Waiting for MIDI events to be emitted by {}…", input_device.name());
+    return context.input_port(input_device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|input_port| {
+        return context.output_port(output_device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the output port: {}", err)).and_then(|output_port| {
+            let mut result: Result<(), String> = Ok(());
+            while result.is_ok() {
+                match input_port.read() {
+                    Ok(Some(e)) => result = output_port.write_event(e).map_err(|err| format!("Error when writing the event: {}", err)),
+                    _ => {},
+                }
+                thread::sleep(duration);
             }
-            thread::sleep(duration);
-        }
-        return event;
-    });
-}
-
-fn write_to_device(context: &PortMidi, device: DeviceInfo, event: MidiEvent) -> Result<(), String> {
-    return context.output_port(device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the output port: {}", err)).and_then(|port| {
-        return port.write_event(event).map_err(|err| format!("Error when writing the event: {}", err));
+            return result;
+        });
     });
 }
