@@ -1,18 +1,26 @@
 extern crate portmidi as pm;
+extern crate signal_hook as sh;
 
 use portmidi::{DeviceInfo, PortMidi};
 
 use std::env;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
 const BUFFER_SIZE: usize = 1024;
 
 fn main() {
+    let term = Arc::new(AtomicBool::new(false));
+
+    println!("Press ^C or send SIGINT to terminate the program");
+    let _sigint = sh::flag::register(sh::consts::signal::SIGINT, Arc::clone(&term));
+
     let result = args().and_then(|(input_name, output_name)| {
         return context().and_then(|context| {
             return select_devices(&context, &input_name, &output_name).and_then(|(input_device, output_device)| {
-                return connect_devices(&context, input_device, output_device);
+                return connect_devices(&context, input_device, output_device, term);
             });
         });
     });
@@ -60,14 +68,14 @@ fn select_devices(context: &PortMidi, input_name: &String, output_name: &String)
     });
 }
 
-fn connect_devices(context: &PortMidi, input_device: DeviceInfo, output_device: DeviceInfo) -> Result<(), String> {
+fn connect_devices(context: &PortMidi, input_device: DeviceInfo, output_device: DeviceInfo, term: Arc<AtomicBool>) -> Result<(), String> {
     let duration = Duration::from_millis(10);
 
     println!("Waiting for MIDI events to be emitted by {}…", input_device.name());
     return context.input_port(input_device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the input port: {}", err)).and_then(|input_port| {
         return context.output_port(output_device, BUFFER_SIZE).as_mut().map_err(|err| format!("Error when retrieving the output port: {}", err)).and_then(|output_port| {
             let mut result: Result<(), String> = Ok(());
-            while result.is_ok() {
+            while !term.load(Ordering::Relaxed) && result.is_ok() {
                 match input_port.read() {
                     Ok(Some(e)) => result = output_port.write_event(e).map_err(|err| format!("Error when writing the event: {}", err)),
                     _ => {},

@@ -3,10 +3,17 @@
 version = 3
 
 [[package]]
+name = "libc"
+version = "0.2.106"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a60553f9a9e039a333b4e9b20573b9e9b9c0bb3a11e201ccc48ef4283456d673"
+
+[[package]]
 name = "midi-hub"
 version = "0.1.0"
 dependencies = [
  "portmidi",
+ "signal-hook",
 ]
 
 [[package]]
@@ -14,3 +21,22 @@ name = "portmidi"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17eb5854ec067149b738c1d99a4b9af927679fe5bb2ef88542fafb6177dc2557"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c98891d737e271a2954825ef19e46bd16bdb98e2746f2eec4f7a4ef7946efd1"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e51e73328dc4ac0c7ccbda3a494dfa03df1de2f46018127f60c693f2648455b0"
+dependencies = [
+ "libc",
+]
