@@ -48,9 +48,10 @@ fn cycle(
     term: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     return context().and_then(|context| {
-        return select_ports(&context, &input_name, &output_name).and_then(
-            |(mut input_port, mut output_port)| {
-                let mut result = Ok(());
+        let ports = select_ports(&context, &input_name, &output_name);
+        let mut result = Ok(());
+        match ports {
+            Ok((mut input_port, mut output_port)) => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
@@ -58,9 +59,13 @@ fn cycle(
                     result = forward_events(&mut input_port, &mut output_port);
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
-                return result;
             },
-        );
+            Err(err) => {
+                println!("{}", err);
+                thread::sleep(MIDI_DEVICE_POLL_INTERVAL);
+            },
+        }
+        return result;
     });
 }
 
