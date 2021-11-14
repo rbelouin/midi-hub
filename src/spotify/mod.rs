@@ -5,6 +5,7 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 
 use std::{future::Future, sync::{Arc, Mutex}};
+use std::time::{Duration, Instant};
 
 use reqwest::{StatusCode, header::HeaderMap};
 
@@ -30,11 +31,14 @@ pub struct SpotifyTaskSpawner {
     spawn: mpsc::Sender<SpotifyTask>,
 }
 
+const DELAY: Duration = Duration::from_millis(5_000);
+
 impl SpotifyTaskSpawner {
     pub fn new(config: authorization::SpotifyAppConfig) -> SpotifyTaskSpawner {
         let config = Arc::new(config);
         let access_token = Arc::new(Mutex::new(None));
         let (send, mut recv) = mpsc::channel(32);
+        let last_action = Arc::new(Mutex::new(Instant::now() - DELAY));
 
         let rt = Builder::new_current_thread()
             .enable_all()
@@ -43,12 +47,19 @@ impl SpotifyTaskSpawner {
 
         let access_token_copy = Arc::clone(&access_token);
         let config_copy = Arc::clone(&config);
+        let last_action_copy = Arc::clone(&last_action);
         std::thread::spawn(move || {
             rt.block_on(async move {
                 while let Some(task) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let access_token = Arc::clone(&access_token_copy);
-                    tokio::spawn(handle_spotify_task(config, access_token, task));
+                    let mut last_action = last_action_copy.lock().unwrap();
+                    if last_action.elapsed() > DELAY {
+                        tokio::spawn(handle_spotify_task(config, access_token, task));
+                        *last_action = Instant::now();
+                    } else {
+                        println!("Ignoring task: {:?}", task);
+                    }
                 }
             });
         });
