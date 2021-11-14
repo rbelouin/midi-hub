@@ -221,7 +221,7 @@ fn send_spotify_tasks(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: S
         Ok(Some(MidiEvent { message: MidiMessage { status: 144, data1, data2, data3: _ }, timestamp: _ })) => {
             if data1 >= 36 && data1 < 100 && data2 > 0 {
                 println!("MIDI event: {:?} {:?}", data1, data2);
-                task_spawner.spawn_playback_task(spotify::SpotifyTask {
+                task_spawner.spawn_task(spotify::SpotifyTask {
                     action: spotify::SpotifyAction::Play { index: (data1 - 36).into() },
                     playlist_id,
                 });
