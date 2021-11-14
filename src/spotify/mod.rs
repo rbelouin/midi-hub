@@ -27,43 +27,26 @@ pub struct SpotifyTask {
 pub struct SpotifyTaskSpawner {
     config: Arc<authorization::SpotifyAppConfig>,
     access_token: Arc<Mutex<Option<String>>>,
-    login_spawn: mpsc::Sender<()>,
-    playback_spawn: mpsc::Sender<SpotifyTask>,
+    spawn: mpsc::Sender<SpotifyTask>,
 }
 
 impl SpotifyTaskSpawner {
     pub fn new(config: authorization::SpotifyAppConfig) -> SpotifyTaskSpawner {
         let config = Arc::new(config);
         let access_token = Arc::new(Mutex::new(None));
-        let (login_send, mut login_recv) = mpsc::channel(32);
-        let (playback_send, mut playback_recv) = mpsc::channel(32);
+        let (send, mut recv) = mpsc::channel(32);
 
-        let login_rt = Builder::new_current_thread()
+        let rt = Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-
-        let playback_rt = Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let config_copy = Arc::clone(&config);
-        std::thread::spawn(move || {
-            login_rt.block_on(async move {
-                while let Some(_) = login_recv.recv().await {
-                    let config = Arc::clone(&config_copy);
-                    tokio::spawn(handle_spotify_login(config));
-                }
-            });
-        });
 
         let access_token_copy = Arc::clone(&access_token);
-        let config_second_copy = Arc::clone(&config);
+        let config_copy = Arc::clone(&config);
         std::thread::spawn(move || {
-            playback_rt.block_on(async move {
-                while let Some(task) = playback_recv.recv().await {
-                    let config = Arc::clone(&config_second_copy);
+            rt.block_on(async move {
+                while let Some(task) = recv.recv().await {
+                    let config = Arc::clone(&config_copy);
                     let access_token = Arc::clone(&access_token_copy);
                     tokio::spawn(handle_spotify_task(config, access_token, task));
                 }
@@ -73,16 +56,7 @@ impl SpotifyTaskSpawner {
         SpotifyTaskSpawner {
             config,
             access_token,
-            login_spawn: login_send,
-            playback_spawn: playback_send,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn spawn_login(&self) {
-        match self.login_spawn.blocking_send(()) {
-            Ok(()) => {},
-            Err(_) => panic!("The shared runtime has shut down."),
+            spawn: send,
         }
     }
 
@@ -106,16 +80,12 @@ impl SpotifyTaskSpawner {
         })).unwrap();
     }
 
-    pub fn spawn_playback_task(&self, task: SpotifyTask) {
-        match self.playback_spawn.blocking_send(task) {
+    pub fn spawn_task(&self, task: SpotifyTask) {
+        match self.spawn.blocking_send(task) {
             Ok(()) => {},
             Err(_) => panic!("The shared runtime has shut down."),
         }
     }
-}
-
-async fn handle_spotify_login(config: Arc<authorization::SpotifyAppConfig>) {
-    let _ = authorization::authorize(config.as_ref()).await;
 }
 
 async fn handle_spotify_task(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, task: SpotifyTask) {
