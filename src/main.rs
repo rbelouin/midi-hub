@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod spotify;
+mod image;
 
 const BUFFER_SIZE: usize = 1024;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);

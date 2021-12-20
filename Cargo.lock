@@ -381,6 +381,7 @@ dependencies = [
  "open",
  "portmidi",
  "querystring",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
