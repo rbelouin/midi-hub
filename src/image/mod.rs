@@ -1,3 +1,8 @@
+extern crate jpeg_decoder;
+
+use std::io::Read;
+use jpeg_decoder::Decoder;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pixel {
     r: u8,
@@ -5,18 +10,44 @@ pub struct Pixel {
     b: u8,
 }
 
+pub fn compress_8x8_from_decoder<R: Read>(decoder: &mut Decoder<R>) -> Result<Vec<Pixel>, String> {
+    return match decoder.decode() {
+        Err(error) => Err(format!("Could not decode the pixels from the given picture: {:?}", error)),
+        Ok(pixels) => {
+            let mut output = vec![];
+            let mut pixel = Pixel { r: 0, g: 0, b: 0 };
+            for i in 0..pixels.len() {
+                match i % 3 {
+                    0 => {
+                        pixel = Pixel { r: pixels[i], g: 0, b: 0 };
+                    },
+                    1 => {
+                        pixel.g = pixels[i];
+                    },
+                    _ => {
+                        pixel.b = pixels[i];
+                        output.push(pixel.clone());
+                    },
+                };
+            }
+            // Assume the pictures have to be 64x64 for now
+            return compress_64(64, 64, output);
+        },
+    };
+}
+
 pub fn compress_64(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Vec<Pixel>, String> {
-    if width * height != pixels.len() as u16 {
+    if (width as u32) * (height as u32) != pixels.len() as u32 {
         return Err(format!("Number of pixels ({}) not matching width ({}) multiplied by height ({})", pixels.len(), width, height));
     }
 
     let mut output = vec![Pixel { r: 0, g: 0, b: 0 }; 64];
-    for new_y in 0..8 {
-        for new_x in 0..8 {
+    for new_y in 0..8u32 {
+        for new_x in 0..8u32 {
             let mut section = vec![];
-            for y in (new_y * height / 8)..((new_y + 1) * height / 8) {
-                for x in (new_x * width / 8)..((new_x + 1) * width / 8) {
-                    section.push(pixels[(height * y + x) as usize]);
+            for y in (new_y * (height as u32) / 8)..((new_y + 1) * (height as u32) / 8) {
+                for x in (new_x * (width as u32) / 8)..((new_x + 1) * (width as u32) / 8) {
+                    section.push(pixels[((height as u32) * y + x) as usize]);
                 }
             }
             output[(new_y * 8 + new_x) as usize] = compress(section);
@@ -52,8 +83,19 @@ pub fn compress(pixels: Vec<Pixel>) -> Pixel {
 
 #[cfg(test)]
 mod tests {
+    extern crate insta;
+
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
+    use std::fs::File;
+    use std::io::BufReader;
+
+    #[test]
+    fn test_compress_8x8_from_decoder() {
+        let file = File::open("src/image/test-cover.jpg").expect("failed to open picture");
+        let mut decoder = Decoder::new(BufReader::new(file));
+        insta::assert_debug_snapshot!(compress_8x8_from_decoder(&mut decoder));
+    }
 
     #[test]
     fn test_compress_64_invalid_input_should_return_error() {
