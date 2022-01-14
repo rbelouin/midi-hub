@@ -101,11 +101,13 @@ pub fn compress(pixels: Vec<Pixel>) -> Pixel {
 #[cfg(test)]
 mod tests {
     extern crate insta;
+    extern crate jpeg_encoder;
 
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
     use std::fs::File;
     use std::io::BufReader;
+    use jpeg_encoder::{Encoder, ColorType};
 
     // This test relies on network calls, on Spotify’s CDN being up, and on the album cover not to
     // change. There’s a risk it becomes flaky, but I’ll keep it until the cost/benefit balance
@@ -116,6 +118,10 @@ mod tests {
         rt.block_on(async {
             let result =  compress_8x8_from_url(String::from("https://i.scdn.co/image/ab67616d00004851ab640839fdacc8f8f4c20ac6")).await;
             insta::assert_debug_snapshot!(result);
+
+            let encoder = Encoder::new_file("src/image/test-ab67616d00004851ab640839fdacc8f8f4c20ac6.jpg", 100).unwrap();
+            let data: Vec<u8> = result.unwrap().iter().flat_map(|pixel| vec![pixel.r, pixel.g, pixel.b]).collect();
+            let _ = encoder.encode(data.as_ref(), 8, 8, ColorType::Rgb);
         });
     }
 
@@ -123,7 +129,12 @@ mod tests {
     fn test_compress_8x8_from_decoder() {
         let file = File::open("src/image/test-cover.jpg").expect("failed to open picture");
         let mut decoder = Decoder::new(BufReader::new(file));
-        insta::assert_debug_snapshot!(compress_8x8_from_decoder(&mut decoder));
+        let result = compress_8x8_from_decoder(&mut decoder);
+        insta::assert_debug_snapshot!(result);
+
+        let encoder = Encoder::new_file("src/image/test-cover-output.jpg", 100).unwrap();
+        let data: Vec<u8> = result.unwrap().iter().flat_map(|pixel| vec![pixel.r, pixel.g, pixel.b]).collect();
+        let _ = encoder.encode(data.as_ref(), 8, 8, ColorType::Rgb);
     }
 
     #[test]
