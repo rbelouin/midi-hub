@@ -10,6 +10,23 @@ pub struct Pixel {
     b: u8,
 }
 
+pub async fn compress_8x8_from_url(url: String) -> Result<Vec<Pixel>, String> {
+    let client = reqwest::Client::new();
+
+    println!("[Image] Fetching and compressing {}", url);
+    let response = client.get(url)
+        .send()
+        .await
+        .map_err(|err| format!("{}", err))?;
+
+    let bytes = response.bytes()
+        .await
+        .map_err(|err| format!("{}", err))?;
+
+    let mut decoder = Decoder::new(bytes.as_ref());
+    return compress_8x8_from_decoder(&mut decoder);
+}
+
 pub fn compress_8x8_from_decoder<R: Read>(decoder: &mut Decoder<R>) -> Result<Vec<Pixel>, String> {
     return match decoder.decode() {
         Err(error) => Err(format!("Could not decode the pixels from the given picture: {:?}", error)),
@@ -89,6 +106,18 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::BufReader;
+
+    // This test relies on network calls, on Spotify’s CDN being up, and on the album cover not to
+    // change. There’s a risk it becomes flaky, but I’ll keep it until the cost/benefit balance
+    // becomes bad.
+    #[test]
+    fn test_compress_8x8_from_url() {
+        let rt  =  tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let result =  compress_8x8_from_url(String::from("https://i.scdn.co/image/ab67616d00004851ab640839fdacc8f8f4c20ac6")).await;
+            insta::assert_debug_snapshot!(result);
+        });
+    }
 
     #[test]
     fn test_compress_8x8_from_decoder() {
