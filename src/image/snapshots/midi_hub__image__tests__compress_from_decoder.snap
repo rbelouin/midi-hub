@@ -1,7 +1,7 @@
 ---
 source: src/image/mod.rs
-assertion_line: 97
-expression: compress_8x8_from_decoder(&mut decoder)
+assertion_line: 133
+expression: result
 
 ---
 Ok(

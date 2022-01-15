@@ -1,6 +1,6 @@
 ---
 source: src/image/mod.rs
-assertion_line: 115
+assertion_line: 120
 expression: result
 
 ---

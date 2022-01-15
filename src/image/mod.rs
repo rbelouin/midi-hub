@@ -5,12 +5,12 @@ use jpeg_decoder::Decoder;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pixel {
-    r: u8,
-    g: u8,
-    b: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
 
-pub async fn compress_8x8_from_url(url: String) -> Result<Vec<Pixel>, String> {
+pub async fn compress_from_url<A, F: FnOnce(u16, u16, Vec<Pixel>) -> Result<A, String>>(url: String, algo: F) -> Result<A, String> {
     let client = reqwest::Client::new();
 
     println!("[Image] Fetching and compressing {}", url);
@@ -24,10 +24,10 @@ pub async fn compress_8x8_from_url(url: String) -> Result<Vec<Pixel>, String> {
         .map_err(|err| format!("{}", err))?;
 
     let mut decoder = Decoder::new(bytes.as_ref());
-    return compress_8x8_from_decoder(&mut decoder);
+    return compress_from_decoder(&mut decoder, algo);
 }
 
-pub fn compress_8x8_from_decoder<R: Read>(decoder: &mut Decoder<R>) -> Result<Vec<Pixel>, String> {
+pub fn compress_from_decoder<A, R: Read, F: FnOnce(u16, u16, Vec<Pixel>) -> Result<A, String>>(decoder: &mut Decoder<R>, algo: F) -> Result<A, String> { 
     return match decoder.decode() {
         Err(error) => Err(format!("Could not decode the pixels from the given picture: {:?}", error)),
         Ok(pixels) => {
@@ -48,12 +48,12 @@ pub fn compress_8x8_from_decoder<R: Read>(decoder: &mut Decoder<R>) -> Result<Ve
                 };
             }
             // Assume the pictures have to be 64x64 for now
-            return compress_64(64, 64, output);
+            return algo(64, 64, output);
         },
     };
 }
 
-pub fn compress_64(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Vec<Pixel>, String> {
+pub fn compress_8x8(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Vec<Pixel>, String> {
     if (width as u32) * (height as u32) != pixels.len() as u32 {
         return Err(format!("Number of pixels ({}) not matching width ({}) multiplied by height ({})", pixels.len(), width, height));
     }
@@ -72,6 +72,10 @@ pub fn compress_64(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Vec<Pi
     }
 
     return Ok(output);
+}
+
+pub fn compress_1x1(_width: u16, _height: u16, pixels: Vec<Pixel>) -> Result<Pixel, String> {
+    return Ok(compress(pixels));
 }
 
 pub fn compress(pixels: Vec<Pixel>) -> Pixel {
@@ -113,10 +117,10 @@ mod tests {
     // change. There’s a risk it becomes flaky, but I’ll keep it until the cost/benefit balance
     // becomes bad.
     #[test]
-    fn test_compress_8x8_from_url() {
+    fn test_compress_from_url() {
         let rt  =  tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let result =  compress_8x8_from_url(String::from("https://i.scdn.co/image/ab67616d00004851ab640839fdacc8f8f4c20ac6")).await;
+            let result =  compress_from_url(String::from("https://i.scdn.co/image/ab67616d00004851ab640839fdacc8f8f4c20ac6"), compress_8x8).await;
             insta::assert_debug_snapshot!(result);
 
             let encoder = Encoder::new_file("src/image/test-ab67616d00004851ab640839fdacc8f8f4c20ac6.jpg", 100).unwrap();
@@ -126,10 +130,10 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_8x8_from_decoder() {
+    fn test_compress_from_decoder() {
         let file = File::open("src/image/test-cover.jpg").expect("failed to open picture");
         let mut decoder = Decoder::new(BufReader::new(file));
-        let result = compress_8x8_from_decoder(&mut decoder);
+        let result = compress_from_decoder(&mut decoder, compress_8x8);
         insta::assert_debug_snapshot!(result);
 
         let encoder = Encoder::new_file("src/image/test-cover-output.jpg", 100).unwrap();
@@ -138,13 +142,13 @@ mod tests {
     }
 
     #[test]
-    fn test_compress_64_invalid_input_should_return_error() {
-        let result = compress_64(16, 16, vec![]);
+    fn test_compress_8x8_invalid_input_should_return_error() {
+        let result = compress_8x8(16, 16, vec![]);
         assert!(result.is_err(), "result should be an error, got {:?}", result);
     }
 
     #[test]
-    fn test_compress_64_valid_input_should_compress_picture() {
+    fn test_compress_8x8_valid_input_should_compress_picture() {
         // black
         let b = Pixel { r: 0, g: 0, b: 0 };
         // white
@@ -182,7 +186,7 @@ mod tests {
             w, g, w, g, w, g, w, g,
         ];
 
-        assert_eq!(compress_64(16, 16, input), Ok(expected_output));
+        assert_eq!(compress_8x8(16, 16, input), Ok(expected_output));
     }
 
     #[test]
