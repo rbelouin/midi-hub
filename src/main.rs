@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 mod spotify;
 mod image;
+mod launchpad;
 
 const BUFFER_SIZE: usize = 1024;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
@@ -37,7 +38,8 @@ struct RunConfig {
 struct Ports<'a> {
     input: Result<InputPort<'a>, String>,
     output: Result<OutputPort<'a>, String>,
-    spotify: Result<InputPort<'a>, String>,
+    spotify_input: Result<InputPort<'a>, String>,
+    spotify_output: Result<OutputPort<'a>, String>,
 }
 
 fn main() {
@@ -120,7 +122,7 @@ fn cycle(
         let ports = select_ports(&context, &config);
         let mut result = Ok(());
         match ports {
-            Ok(Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify: _ }) => {
+            Ok(Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify_input: _ , spotify_output: _ }) => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
@@ -129,12 +131,17 @@ fn cycle(
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
-            Ok(Ports { input: _, output: _, spotify: Ok(mut s) }) => {
+            Ok(Ports { input: _, output: _, spotify_input: Ok(mut s1), spotify_output: Ok(s2) }) => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
                 {
-                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut s);
+                    let cover_pixels = task_spawner.cover_pixels();
+                    match cover_pixels {
+                        Some(pixels) => launchpad::render_pixels(&s2, pixels),
+                        None => {},
+                    }
+                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut s1);
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
@@ -164,7 +171,8 @@ fn select_ports<'a, 'b, 'c>(
         let mut ports = Ports {
             input: Err(format!("Could not find input device: {}", config.input_name)),
             output: Err(format!("Could not find output device: {}", config.output_name)),
-            spotify: Err(format!("Could not find spotify device: {}", config.spotify_selector)),
+            spotify_input: Err(format!("Could not find spotify device: {}", config.spotify_selector)),
+            spotify_output: Err(format!("Could not find spotify device: {}", config.spotify_selector)),
         };
 
         for device in devices {
@@ -176,9 +184,13 @@ fn select_ports<'a, 'b, 'c>(
                 ports.output = context.output_port(device, BUFFER_SIZE).map_err(|err| {
                     return format!("Could not retrieve output port ({}): {}", config.output_name, err);
                 });
-            } else if ports.spotify.is_err() && device.is_input() && device.name().to_string() == config.spotify_selector {
-                ports.spotify = context.input_port(device, BUFFER_SIZE).map_err(|err| {
+            } else if ports.spotify_input.is_err() && device.is_input() && device.name().to_string() == config.spotify_selector {
+                ports.spotify_input = context.input_port(device, BUFFER_SIZE).map_err(|err| {
                     return format!("Could not retrieve input port ({}): {}", config.spotify_selector, err);
+                });
+            } else if ports.spotify_output.is_err() && device.is_output() && device.name().to_string() == config.spotify_selector {
+                ports.spotify_output = context.output_port(device, BUFFER_SIZE).map_err(|err| {
+                    return format!("Could not retrieve output port ({}): {}", config.spotify_selector, err);
                 });
             }
         }

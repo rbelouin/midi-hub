@@ -5,9 +5,9 @@ use jpeg_decoder::Decoder;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pixel {
-    r: u8,
-    g: u8,
-    b: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
 
 pub async fn compress_8x8_from_url(url: String) -> Result<Vec<Pixel>, String> {
