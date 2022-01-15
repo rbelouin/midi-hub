@@ -3,13 +3,15 @@ use serde_json::json;
 
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 use std::{future::Future, sync::{Arc, Mutex}};
 use std::time::{Duration, Instant};
 
 use reqwest::{StatusCode, header::HeaderMap};
 
-use crate::image::{Pixel, compress_from_url, compress_8x8};
+use crate::image::{Pixel, compress_from_url, compress_8x8, compress_1x1};
+use crate::launchpad::map_index;
 
 pub mod authorization;
 
@@ -41,7 +43,7 @@ impl SpotifyTaskSpawner {
         let config = Arc::new(config);
         let access_token = Arc::new(Mutex::new(None));
         let cover_pixels = Arc::new(Mutex::new(None));
-        let (send, mut recv) = mpsc::channel(32);
+        let (send, mut recv) = mpsc::channel::<SpotifyTask>(32);
         let last_action = Arc::new(Mutex::new(Instant::now() - DELAY));
 
         let rt = Builder::new_current_thread()
@@ -61,7 +63,8 @@ impl SpotifyTaskSpawner {
                     let cover_pixels = Arc::clone(&cover_pixels_copy);
                     let mut last_action = last_action_copy.lock().unwrap();
                     if last_action.elapsed() > DELAY {
-                        tokio::spawn(handle_spotify_task(config, access_token, cover_pixels, task));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&cover_pixels), task.clone()));
+                        tokio::spawn(render_playlist_cover(config, access_token, cover_pixels, task));
                         *last_action = Instant::now();
                     } else {
                         println!("Ignoring task: {:?}", task);
@@ -115,7 +118,26 @@ impl SpotifyTaskSpawner {
     }
 }
 
-async fn handle_spotify_task(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>,  cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
+async fn render_playlist_cover(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
+    let SpotifyTask { action: _, playlist_id } = task;
+    sleep(Duration::from_millis(5_000)).await;
+    let _ = with_access_token(config, access_token, |token| async {
+        let tracks = playlist_tracks(token, &playlist_id).await.unwrap_or(vec![]);
+        let mut pixels = vec![Pixel { r: 0, g: 0, b: 0  }; 64];
+        for n in 0..tracks.len() {
+            let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
+            if image_url.is_some() {
+                pixels[map_index(n as u8) as usize] =  compress_from_url(image_url.unwrap(), compress_1x1).await.unwrap_or(pixels[map_index(n as u8) as usize]);
+            }
+        };
+
+        let mut new_cover_pixels = cover_pixels.lock().unwrap();
+        *new_cover_pixels = Some(pixels);
+        return Ok(());
+    }).await;
+}
+
+async fn handle_spotify_task(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
     let SpotifyTask { action, playlist_id } = task;
     let _ = match action {
         SpotifyAction::Play { index } => with_access_token(config, access_token, |token| async {

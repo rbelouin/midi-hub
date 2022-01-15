@@ -74,6 +74,10 @@ pub fn compress_8x8(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Vec<P
     return Ok(output);
 }
 
+pub fn compress_1x1(_width: u16, _height: u16, pixels: Vec<Pixel>) -> Result<Pixel, String> {
+    return Ok(compress(pixels));
+}
+
 pub fn compress(pixels: Vec<Pixel>) -> Pixel {
     if pixels.is_empty() {
         return Pixel { r: 0, g: 0, b: 0 };

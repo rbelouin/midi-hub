@@ -3,6 +3,22 @@ extern crate portmidi as pm;
 use portmidi::OutputPort;
 use crate::image::Pixel;
 
+pub fn map_index(i: u8) -> u8 {
+    let index = if i > 63 {
+        63 
+    } else {
+        i
+    };
+
+    let row = index / 4;
+
+    if row < 8 {
+        return (7 - row) * 8 + (index % 4);
+    } else {
+        return (15 - row) * 8 + 4 + (index % 4);
+    }
+}
+
 pub fn render_pixels(output_port: &OutputPort, pixels: Vec<Pixel>) {
     if pixels.len() != 64 {
         println!("Error: the number of pixels is not 64: {}", pixels.len());
@@ -30,22 +46,3 @@ pub fn render_pixels(output_port: &OutputPort, pixels: Vec<Pixel>) {
         Err(e) => println!("Error: {}",  e),
     }
 }
-
-/*
-    let mut picture_prefix = vec![240, 0, 32, 41, 2, 16, 15, 1];
-    let mut picture_suffix = vec![247];
-    let mut picture_pixels: Vec<u8> = pixels
-        .iter()
-        .flat_map(|pixel| vec![pixel.r, pixel.g, pixel.b])
-        .collect();
-
-    let mut picture = vec![];
-    picture.append(&mut picture_prefix);
-    picture.append(&mut picture_pixels);
-    picture.append(&mut picture_suffix);
-
-    match output_port.write_sysex(0, &picture) {
-        Ok(()) => println!("Worked!"),
-        Err(e) => println!("Error: {}",  e),
-    }
-*/
