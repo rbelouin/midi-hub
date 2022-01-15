@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use reqwest::{StatusCode, header::HeaderMap};
 
-use crate::image::{Pixel, compress_8x8_from_url};
+use crate::image::{Pixel, compress_from_url, compress_8x8};
 
 pub mod authorization;
 
@@ -123,7 +123,7 @@ async fn handle_spotify_task(config: Arc<authorization::SpotifyAppConfig>, acces
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
                 Some(url) => {
-                    let pixels = compress_8x8_from_url(url.clone()).await;
+                    let pixels = compress_from_url(url.clone(), compress_8x8).await;
                     let mut new_cover_pixels = cover_pixels.lock().unwrap();
                     match pixels {
                         Ok(pixels) => {
