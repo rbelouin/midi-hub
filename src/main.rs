@@ -232,15 +232,41 @@ fn forward_events(input_port: &mut InputPort, output_port: &mut OutputPort) -> R
 fn send_spotify_tasks(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_port: &mut InputPort) -> Result<(), String> {
     return match spotify_port.read() {
         Ok(Some(MidiEvent { message: MidiMessage { status: 144, data1, data2, data3: _ }, timestamp: _ })) => {
-            if data1 >= 36 && data1 < 100 && data2 > 0 {
-                println!("MIDI event: {:?} {:?}", data1, data2);
-                task_spawner.spawn_task(spotify::SpotifyTask {
-                    action: spotify::SpotifyAction::Play { index: (data1 - 36).into() },
+            println!("MIDI event: {:?} {:?}", data1, data2);
+            match map_to_old_index(data1).filter(|_index| data2 > 0) {
+                Some(index) => task_spawner.spawn_task(spotify::SpotifyTask {
+                    action: spotify::SpotifyAction::Play { index: index.into() },
                     playlist_id,
-                });
+                }),
+                None => {},
             }
             return Ok(());
         },
         _ => Ok(()),
     };
+}
+
+fn map_to_old_index(code: u8) -> Option<u8> {
+    println!("code: {}", code);
+    let mut grid = vec![
+        vec![28, 29, 30, 31, 60, 61, 62, 63],
+        vec![24, 25, 26, 27, 56, 57, 58, 59],
+        vec![20, 21, 22, 23, 52, 53, 54, 55],
+        vec![16, 17, 18, 19, 48, 49, 50, 51],
+        vec![12, 13, 14, 15, 44, 45, 46, 47],
+        vec![08, 09, 10, 11, 40, 41, 42, 43],
+        vec![04, 05, 06, 07, 36, 37, 38, 39],
+        vec![00, 01, 02, 03, 32, 33, 34, 35],
+    ];
+
+    grid.reverse();
+
+    let row: usize = (code % 10).into();
+    let column: usize = (code / 10).into();
+
+    if row >= 1 && row <= 8 && column >= 1 && column <= 8 {
+        return Some(grid[column - 1][row - 1]);
+    } else {
+        return None;
+    }
 }
