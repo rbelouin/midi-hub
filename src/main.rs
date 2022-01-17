@@ -2,7 +2,6 @@ extern crate portmidi as pm;
 extern crate signal_hook as sh;
 
 use pm::{MidiEvent, MidiMessage};
-use portmidi::{InputPort, OutputPort};
 
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,9 +13,8 @@ mod spotify;
 mod image;
 mod launchpad;
 mod midi;
-use midi::Connections;
+use midi::{Connections, Error, InputPort, OutputPort};
 
-const BUFFER_SIZE: usize = 1024;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -38,10 +36,10 @@ struct RunConfig {
 }
 
 struct Ports<'a> {
-    input: Result<InputPort<'a>, String>,
-    output: Result<OutputPort<'a>, String>,
-    spotify_input: Result<InputPort<'a>, String>,
-    spotify_output: Result<OutputPort<'a>, String>,
+    input: Result<InputPort<'a>, Error>,
+    output: Result<OutputPort<'a>, Error>,
+    spotify_input: Result<InputPort<'a>, Error>,
+    spotify_output: Result<OutputPort<'a>, Error>,
 }
 
 fn main() {
@@ -148,7 +146,7 @@ fn cycle(
                 }
             },
             _ => {
-                println!("Other kind of error");
+                println!("Could not find the configured ports");
                 thread::sleep(MIDI_DEVICE_POLL_INTERVAL);
             },
         }
@@ -160,27 +158,10 @@ fn select_ports<'a, 'b, 'c>(
     connections: &'a Connections,
     config: &'b RunConfig,
 ) -> Ports<'a> {
-    let context = connections.context();
-    let input = connections.get_input_device(&config.input_name)
-        .ok_or(format!("Could not find input device: {}", config.input_name))
-        .and_then(|input_device| context.input_port(input_device.clone(), BUFFER_SIZE)
-        .map_err(|err| format!("Could not retrieve input port ({}): {}", config.input_name, err)));
-
-    let output = connections.get_output_device(&config.output_name)
-        .ok_or(format!("Could not find output device: {}", config.output_name))
-        .and_then(|output_device| context.output_port(output_device.clone(), BUFFER_SIZE)
-        .map_err(|err| format!("Could not retrieve output port ({}): {}", config.output_name, err)));
-
-    let spotify_input = connections.get_input_device(&config.spotify_selector)
-        .ok_or(format!("Could not find input device: {}", config.spotify_selector))
-        .and_then(|input_device| context.input_port(input_device.clone(), BUFFER_SIZE)
-        .map_err(|err| format!("Could not retrieve input port ({}): {}", config.spotify_selector, err)));
-
-    let spotify_output = connections.get_output_device(&config.spotify_selector)
-        .ok_or(format!("Could not find output device: {}", config.spotify_selector))
-        .and_then(|output_device| context.output_port(output_device.clone(), BUFFER_SIZE)
-        .map_err(|err| format!("Could not retrieve output port ({}): {}", config.spotify_selector, err)));
-
+    let input = connections.create_input_port(&config.input_name);
+    let output = connections.create_output_port(&config.output_name);
+    let spotify_input = connections.create_input_port(&config.spotify_selector);
+    let spotify_output = connections.create_output_port(&config.spotify_selector);
 
     return Ports { input, output, spotify_input, spotify_output };
 }

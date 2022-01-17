@@ -4,6 +4,8 @@ use std::fmt;
 pub enum Error {
     ConnectionInitializationError,
     DeviceLoadingError,
+    DeviceNotFound,
+    PortInitializationError,
 }
 
 impl fmt::Display for Error {
@@ -11,6 +13,8 @@ impl fmt::Display for Error {
         return match self {
             Error::ConnectionInitializationError => write!(f, "[midi] error when initializing connections"),
             Error::DeviceLoadingError => write!(f, "[midi] error when loading devices"),
+            Error::DeviceNotFound => write!(f, "[midi] could not find device"),
+            Error::PortInitializationError => write!(f, "[midi] error when initializing a port"),
         }
     }
 }

@@ -2,8 +2,12 @@ use std::collections::HashMap;
 
 extern crate portmidi;
 use portmidi::{DeviceInfo, Direction, PortMidi};
+pub use portmidi::{InputPort, OutputPort};
 
 use super::error::Error;
+
+/// The buffer size is quite arbitrary
+const BUFFER_SIZE: usize = 1024;
 
 /// This structure manages all MIDI connections
 ///
@@ -59,24 +63,24 @@ impl Connections {
         return Ok(());
     }
 
-    /// TODO remove this getter once ports are correctly exposed
-    pub fn context(&self) -> &PortMidi {
-        return &self.context;
+    pub fn create_input_port(&self, name: &String) -> Result<InputPort, Error> {
+        let device = self.input_devices.get(name).ok_or(Error::DeviceNotFound)?;
+        return self.context.input_port(device.clone(), BUFFER_SIZE)
+            .map_err(|_| Error::PortInitializationError);
     }
 
-    /// TODO remove this getter once ports are correctly exposed
-    pub fn get_input_device(&self, name: &String) -> Option<&DeviceInfo> {
-        return self.input_devices.get(name);
-    }
-
-    /// TODO remove this getter once ports are correctly exposed
-    pub fn get_output_device(&self, name: &String) -> Option<&DeviceInfo> {
-        return self.output_devices.get(name);
+    pub fn create_output_port(&self, name: &String) -> Result<OutputPort, Error> {
+        let device = self.output_devices.get(name).ok_or(Error::DeviceNotFound)?;
+        return self.context.output_port(device.clone(), BUFFER_SIZE)
+            .map_err(|_| Error::PortInitializationError);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+    use std::time::Duration;
+    use portmidi::{MidiEvent, MidiMessage};
     use super::*;
 
     #[test]
@@ -88,12 +92,19 @@ mod tests {
         assert!(connections.is_ok(), "`connections` should be an instance of Ok()");
 
         let name = "Planck EZ".to_string();
-        let input_device = connections.as_ref().unwrap().get_input_device(&name);
-        assert!(input_device.is_some(), "`{}` should have been found as an input device", name);
-        assert!(input_device.unwrap().is_input(), "`{}` should be an input device", name);
+        let input_port = connections.as_ref().unwrap().create_input_port(&name);
+        let input_device = input_port.as_ref().map(|port| port.device());
+        assert!(input_device.is_ok(), "{:?} should have been found as an input port", input_device);
+        assert!(input_device.as_ref().unwrap().is_input(), "`{:?}` should be an input device", input_device);
 
-        let output_device = connections.as_ref().unwrap().get_output_device(&name);
-        assert!(output_device.is_some(), "`{}` should have been found as an output device", name);
-        assert!(output_device.unwrap().is_output(), "`{}` should be an output device", name);
+        let mut output_port = connections.as_ref().unwrap().create_output_port(&name);
+        let output_device = output_port.as_ref().map(|port| port.device());
+        assert!(output_device.is_ok(), "`{:?}` should have been found as an output device", output_device);
+        assert!(output_device.as_ref().unwrap().is_output(), "`{:?}` should be an output device", output_device);
+
+        // You should here a Ab5 for 300ms
+        let _ = output_port.as_mut().unwrap().write_event(MidiEvent::from(MidiMessage::from([144, 80, 36, 0])));
+        thread::sleep(Duration::from_millis(300));
+        let _ = output_port.as_mut().unwrap().write_event(MidiEvent::from(MidiMessage::from([128, 80, 0, 0])));
     }
 }
