@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use reqwest::{StatusCode, header::HeaderMap};
 
 use crate::image::{Pixel, compress_from_url, compress_8x8, compress_1x1};
-use crate::launchpad::map_index;
+use crate::midi::launchpadpro::LaunchpadPro;
 
 pub mod authorization;
 
@@ -127,7 +127,7 @@ async fn render_playlist_cover(config: Arc<authorization::SpotifyAppConfig>, acc
         for n in 0..tracks.len() {
             let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
             if image_url.is_some() {
-                pixels[map_index(n as u8) as usize] =  compress_from_url(image_url.unwrap(), compress_1x1).await.unwrap_or(pixels[map_index(n as u8) as usize]);
+                pixels[LaunchpadPro::map_index(n as u8) as usize] =  compress_from_url(image_url.unwrap(), compress_1x1).await.unwrap_or(pixels[LaunchpadPro::map_index(n as u8) as usize]);
             }
         };
 

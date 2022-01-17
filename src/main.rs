@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 mod spotify;
 mod image;
-mod launchpad;
 mod midi;
-use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer};
+use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer, ImageRenderer};
+use midi::launchpadpro::LaunchpadPro;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -38,7 +38,7 @@ struct RunConfig {
 struct Ports<'a> {
     input: Result<InputPort<'a>, Error>,
     output: Result<OutputPort<'a>, Error>,
-    spotify: Result<(InputPort<'a>,  OutputPort<'a>), Error>,
+    spotify: Result<LaunchpadPro<'a>, Error>,
 }
 
 fn main() {
@@ -137,7 +137,9 @@ fn cycle(
                 {
                     let cover_pixels = task_spawner.cover_pixels();
                     match cover_pixels {
-                        Some(pixels) => launchpad::render_pixels(&ports.1, pixels),
+                        Some(pixels) => {
+                            let _ = ports.render(pixels);
+                        },
                         None => {},
                     }
                     result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut ports);
@@ -159,7 +161,8 @@ fn select_ports<'a, 'b, 'c>(
 ) -> Ports<'a> {
     let input = connections.create_input_port(&config.input_name);
     let output = connections.create_output_port(&config.output_name);
-    let spotify = connections.create_bidirectional_ports(&config.spotify_selector);
+    let spotify = connections.create_bidirectional_ports(&config.spotify_selector)
+        .map(|ports| LaunchpadPro::from(ports));
 
     return Ports { input, output, spotify };
 }

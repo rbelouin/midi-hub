@@ -83,6 +83,7 @@ impl Connections {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "launchpadpro"))]
 mod tests {
     use std::thread;
     use std::time::Duration;

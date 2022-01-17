@@ -1,5 +1,5 @@
 extern crate portmidi;
-use portmidi::MidiEvent;
+pub use portmidi::MidiEvent;
 
 use super::{Error, InputPort, OutputPort};
 
@@ -35,4 +35,9 @@ impl<'a> Writer for (InputPort<'a>, OutputPort<'a>) {
     fn write(&mut self, event: &MidiEvent) -> Result<(), Error> {
         return Writer::write(&mut self.1, event);
     }
+}
+
+/// MIDI Device that is able to render a picture
+pub trait ImageRenderer<P> {
+    fn render(&mut self, image: P) -> Result<(), Error>;
 }
