@@ -74,6 +74,12 @@ impl Connections {
         return self.context.output_port(device.clone(), BUFFER_SIZE)
             .map_err(|_| Error::PortInitializationError);
     }
+
+    pub fn create_bidirectional_ports(&self, name: &String) -> Result<(InputPort, OutputPort), Error> {
+        let input_port = self.create_input_port(name)?;
+        let output_port = self.create_output_port(name)?;
+        return Ok((input_port, output_port));
+    }
 }
 
 #[cfg(test)]
@@ -92,19 +98,19 @@ mod tests {
         assert!(connections.is_ok(), "`connections` should be an instance of Ok()");
 
         let name = "Planck EZ".to_string();
-        let input_port = connections.as_ref().unwrap().create_input_port(&name);
-        let input_device = input_port.as_ref().map(|port| port.device());
-        assert!(input_device.is_ok(), "{:?} should have been found as an input port", input_device);
-        assert!(input_device.as_ref().unwrap().is_input(), "`{:?}` should be an input device", input_device);
+        let result = connections.as_ref().unwrap().create_bidirectional_ports(&name);
+        assert!(result.is_ok(), "{:?} should have been found as a tuple of input/output ports", name);
 
-        let mut output_port = connections.as_ref().unwrap().create_output_port(&name);
-        let output_device = output_port.as_ref().map(|port| port.device());
-        assert!(output_device.is_ok(), "`{:?}` should have been found as an output device", output_device);
-        assert!(output_device.as_ref().unwrap().is_output(), "`{:?}` should be an output device", output_device);
+        if let Ok((input_port, mut output_port)) = result {
+            let input_device = input_port.device();
+            let output_device = output_port.device();
+            assert!(input_device.is_input(), "`{:?}` should be an input device", input_device);
+            assert!(output_device.is_output(), "`{:?}` should be an output device", output_device);
 
-        // You should here a Ab5 for 300ms
-        let _ = output_port.as_mut().unwrap().write_event(MidiEvent::from(MidiMessage::from([144, 80, 36, 0])));
-        thread::sleep(Duration::from_millis(300));
-        let _ = output_port.as_mut().unwrap().write_event(MidiEvent::from(MidiMessage::from([128, 80, 0, 0])));
+            // You should here a Ab5 for 300ms
+            let _ = output_port.write_event(MidiEvent::from(MidiMessage::from([144, 80, 36, 0])));
+            thread::sleep(Duration::from_millis(300));
+            let _ = output_port.write_event(MidiEvent::from(MidiMessage::from([128, 80, 0, 0])));
+        }
     }
 }

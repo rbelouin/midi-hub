@@ -38,8 +38,7 @@ struct RunConfig {
 struct Ports<'a> {
     input: Result<InputPort<'a>, Error>,
     output: Result<OutputPort<'a>, Error>,
-    spotify_input: Result<InputPort<'a>, Error>,
-    spotify_output: Result<OutputPort<'a>, Error>,
+    spotify: Result<(InputPort<'a>,  OutputPort<'a>), Error>,
 }
 
 fn main() {
@@ -122,7 +121,7 @@ fn cycle(
         let ports = select_ports(&connections, &config);
         let mut result = Ok(());
         match ports {
-            Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify_input: _ , spotify_output: _ } => {
+            Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify: _ } => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
@@ -131,17 +130,17 @@ fn cycle(
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
-            Ports { input: _, output: _, spotify_input: Ok(mut s1), spotify_output: Ok(s2) } => {
+            Ports { input: _, output: _, spotify: Ok(mut ports) } => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
                 {
                     let cover_pixels = task_spawner.cover_pixels();
                     match cover_pixels {
-                        Some(pixels) => launchpad::render_pixels(&s2, pixels),
+                        Some(pixels) => launchpad::render_pixels(&ports.1, pixels),
                         None => {},
                     }
-                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut s1);
+                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut ports.0);
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
@@ -160,10 +159,9 @@ fn select_ports<'a, 'b, 'c>(
 ) -> Ports<'a> {
     let input = connections.create_input_port(&config.input_name);
     let output = connections.create_output_port(&config.output_name);
-    let spotify_input = connections.create_input_port(&config.spotify_selector);
-    let spotify_output = connections.create_output_port(&config.spotify_selector);
+    let spotify = connections.create_bidirectional_ports(&config.spotify_selector);
 
-    return Ports { input, output, spotify_input, spotify_output };
+    return Ports { input, output, spotify };
 }
 
 fn forward_events(input_port: &mut InputPort, output_port: &mut OutputPort) -> Result<(), String> {
