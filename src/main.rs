@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 mod spotify;
 mod image;
 mod launchpad;
+mod midi;
+use midi::Connections;
 
 const BUFFER_SIZE: usize = 1024;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
@@ -118,7 +120,8 @@ fn cycle(
     start: Instant,
     term: &Arc<AtomicBool>,
 ) -> Result<(), String> {
-    return context().and_then(|context| {
+    return Connections::new().map_err(|err| format!("{}", err)).and_then(|connections| {
+        let context = connections.context();
         let ports = select_ports(&context, &config);
         let mut result = Ok(());
         match ports {
@@ -156,11 +159,6 @@ fn cycle(
         }
         return result;
     });
-}
-
-fn context() -> Result<PortMidi, String> {
-    return pm::PortMidi::new()
-        .map_err(|err| format!("Could not initialize MIDI context: {}", err));
 }
 
 fn select_ports<'a, 'b, 'c>(
