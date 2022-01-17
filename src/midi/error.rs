@@ -6,6 +6,8 @@ pub enum Error {
     DeviceLoadingError,
     DeviceNotFound,
     PortInitializationError,
+    ReadError,
+    WriteError,
 }
 
 impl fmt::Display for Error {
@@ -15,6 +17,8 @@ impl fmt::Display for Error {
             Error::DeviceLoadingError => write!(f, "[midi] error when loading devices"),
             Error::DeviceNotFound => write!(f, "[midi] could not find device"),
             Error::PortInitializationError => write!(f, "[midi] error when initializing a port"),
+            Error::ReadError => write!(f, "[midi] could not read an event"),
+            Error::WriteError => write!(f, "[midi] could not write an event"),
         }
     }
 }

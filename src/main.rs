@@ -13,7 +13,7 @@ mod spotify;
 mod image;
 mod launchpad;
 mod midi;
-use midi::{Connections, Error, InputPort, OutputPort};
+use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer};
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -63,7 +63,7 @@ fn main() {
                 while !term.load(Ordering::Relaxed) && inner_result.is_ok() {
                     inner_result = cycle(&config, &task_spawner, Instant::now(), term);
                 }
-                return inner_result;
+                return inner_result.map_err(|err| format!("{}", err));
             },
         }
     });
@@ -116,8 +116,8 @@ fn cycle(
     task_spawner: &spotify::SpotifyTaskSpawner,
     start: Instant,
     term: &Arc<AtomicBool>,
-) -> Result<(), String> {
-    return Connections::new().map_err(|err| format!("{}", err)).and_then(|connections| {
+) -> Result<(), Error> {
+    return Connections::new().and_then(|connections| {
         let ports = select_ports(&connections, &config);
         let mut result = Ok(());
         match ports {
@@ -140,7 +140,7 @@ fn cycle(
                         Some(pixels) => launchpad::render_pixels(&ports.1, pixels),
                         None => {},
                     }
-                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut ports.0);
+                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut ports);
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
@@ -164,20 +164,18 @@ fn select_ports<'a, 'b, 'c>(
     return Ports { input, output, spotify };
 }
 
-fn forward_events(input_port: &mut InputPort, output_port: &mut OutputPort) -> Result<(), String> {
-    return match input_port.read() {
+fn forward_events<R: Reader, W: Writer>(reader: &mut R, writer: &mut W) -> Result<(), Error> {
+    return match reader.read() {
         Ok(Some(e)) => {
             println!("MIDI event: {:?}", e);
-            return output_port
-                .write_event(e)
-                .map_err(|err| format!("Error when writing the event: {}", err));
+            return writer.write(&e);
         },
         _ => Ok(()),
     };
 }
 
-fn send_spotify_tasks(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_port: &mut InputPort) -> Result<(), String> {
-    return match spotify_port.read() {
+fn send_spotify_tasks<R: Reader>(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_reader: &mut R) -> Result<(), Error> {
+    return match spotify_reader.read() {
         Ok(Some(MidiEvent { message: MidiMessage { status: 144, data1, data2, data3: _ }, timestamp: _ })) => {
             println!("MIDI event: {:?} {:?}", data1, data2);
             match map_to_old_index(data1).filter(|_index| data2 > 0) {
