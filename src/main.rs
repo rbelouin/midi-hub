@@ -2,7 +2,6 @@ extern crate portmidi as pm;
 extern crate signal_hook as sh;
 
 use pm::{MidiEvent, MidiMessage};
-use portmidi::{DeviceInfo, InputPort, OutputPort, PortMidi};
 
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,9 +11,10 @@ use std::time::{Duration, Instant};
 
 mod spotify;
 mod image;
-mod launchpad;
+mod midi;
+use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer, ImageRenderer};
+use midi::launchpadpro::LaunchpadPro;
 
-const BUFFER_SIZE: usize = 1024;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -36,10 +36,9 @@ struct RunConfig {
 }
 
 struct Ports<'a> {
-    input: Result<InputPort<'a>, String>,
-    output: Result<OutputPort<'a>, String>,
-    spotify_input: Result<InputPort<'a>, String>,
-    spotify_output: Result<OutputPort<'a>, String>,
+    input: Result<InputPort<'a>, Error>,
+    output: Result<OutputPort<'a>, Error>,
+    spotify: Result<LaunchpadPro<'a>, Error>,
 }
 
 fn main() {
@@ -64,7 +63,7 @@ fn main() {
                 while !term.load(Ordering::Relaxed) && inner_result.is_ok() {
                     inner_result = cycle(&config, &task_spawner, Instant::now(), term);
                 }
-                return inner_result;
+                return inner_result.map_err(|err| format!("{}", err));
             },
         }
     });
@@ -117,12 +116,12 @@ fn cycle(
     task_spawner: &spotify::SpotifyTaskSpawner,
     start: Instant,
     term: &Arc<AtomicBool>,
-) -> Result<(), String> {
-    return context().and_then(|context| {
-        let ports = select_ports(&context, &config);
+) -> Result<(), Error> {
+    return Connections::new().and_then(|connections| {
+        let ports = select_ports(&connections, &config);
         let mut result = Ok(());
         match ports {
-            Ok(Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify_input: _ , spotify_output: _ }) => {
+            Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify: _ } => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
@@ -131,26 +130,24 @@ fn cycle(
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
-            Ok(Ports { input: _, output: _, spotify_input: Ok(mut s1), spotify_output: Ok(s2) }) => {
+            Ports { input: _, output: _, spotify: Ok(mut ports) } => {
                 while !term.load(Ordering::Relaxed)
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
                 {
                     let cover_pixels = task_spawner.cover_pixels();
                     match cover_pixels {
-                        Some(pixels) => launchpad::render_pixels(&s2, pixels),
+                        Some(pixels) => {
+                            let _ = ports.render(pixels);
+                        },
                         None => {},
                     }
-                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut s1);
+                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut ports);
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
-            Err(err) => {
-                println!("{}", err);
-                thread::sleep(MIDI_DEVICE_POLL_INTERVAL);
-            },
             _ => {
-                println!("Other kind of error");
+                println!("Could not find the configured ports");
                 thread::sleep(MIDI_DEVICE_POLL_INTERVAL);
             },
         }
@@ -158,79 +155,30 @@ fn cycle(
     });
 }
 
-fn context() -> Result<PortMidi, String> {
-    return pm::PortMidi::new()
-        .map_err(|err| format!("Could not initialize MIDI context: {}", err));
-}
-
 fn select_ports<'a, 'b, 'c>(
-    context: &'a PortMidi,
+    connections: &'a Connections,
     config: &'b RunConfig,
-) -> Result<Ports<'a>, String> {
-    return devices(context).map(|devices| {
-        let mut ports = Ports {
-            input: Err(format!("Could not find input device: {}", config.input_name)),
-            output: Err(format!("Could not find output device: {}", config.output_name)),
-            spotify_input: Err(format!("Could not find spotify device: {}", config.spotify_selector)),
-            spotify_output: Err(format!("Could not find spotify device: {}", config.spotify_selector)),
-        };
+) -> Ports<'a> {
+    let input = connections.create_input_port(&config.input_name);
+    let output = connections.create_output_port(&config.output_name);
+    let spotify = connections.create_bidirectional_ports(&config.spotify_selector)
+        .map(|ports| LaunchpadPro::from(ports));
 
-        for device in devices {
-            if ports.input.is_err() && device.is_input() && device.name().to_string() == config.input_name {
-                ports.input = context.input_port(device, BUFFER_SIZE).map_err(|err| {
-                    return format!("Could not retrieve input port ({}): {}", config.input_name, err);
-                });
-            } else if ports.output.is_err() && device.is_output() && device.name().to_string() == config.output_name {
-                ports.output = context.output_port(device, BUFFER_SIZE).map_err(|err| {
-                    return format!("Could not retrieve output port ({}): {}", config.output_name, err);
-                });
-            } else if ports.spotify_input.is_err() && device.is_input() && device.name().to_string() == config.spotify_selector {
-                ports.spotify_input = context.input_port(device, BUFFER_SIZE).map_err(|err| {
-                    return format!("Could not retrieve input port ({}): {}", config.spotify_selector, err);
-                });
-            } else if ports.spotify_output.is_err() && device.is_output() && device.name().to_string() == config.spotify_selector {
-                ports.spotify_output = context.output_port(device, BUFFER_SIZE).map_err(|err| {
-                    return format!("Could not retrieve output port ({}): {}", config.spotify_selector, err);
-                });
-            }
-        }
-
-        return ports;
-    });
+    return Ports { input, output, spotify };
 }
 
-fn devices(context: &PortMidi) -> Result<Vec<DeviceInfo>, String> {
-    return context
-        .devices()
-        .map_err(|err| format!("Error when retrieving MIDI devices: {}", err))
-        .and_then(|devices| {
-            if devices.len() == 0 {
-                return Err(String::from("No MIDI devices are connected."));
-            }
-
-            println!("MIDI devices:");
-            for device in &devices {
-                println!("{}", device);
-            }
-
-            return Ok(devices);
-        });
-}
-
-fn forward_events(input_port: &mut InputPort, output_port: &mut OutputPort) -> Result<(), String> {
-    return match input_port.read() {
+fn forward_events<R: Reader, W: Writer>(reader: &mut R, writer: &mut W) -> Result<(), Error> {
+    return match reader.read() {
         Ok(Some(e)) => {
             println!("MIDI event: {:?}", e);
-            return output_port
-                .write_event(e)
-                .map_err(|err| format!("Error when writing the event: {}", err));
+            return writer.write(&e);
         },
         _ => Ok(()),
     };
 }
 
-fn send_spotify_tasks(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_port: &mut InputPort) -> Result<(), String> {
-    return match spotify_port.read() {
+fn send_spotify_tasks<R: Reader>(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_reader: &mut R) -> Result<(), Error> {
+    return match spotify_reader.read() {
         Ok(Some(MidiEvent { message: MidiMessage { status: 144, data1, data2, data3: _ }, timestamp: _ })) => {
             println!("MIDI event: {:?} {:?}", data1, data2);
             match map_to_old_index(data1).filter(|_index| data2 > 0) {
