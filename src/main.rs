@@ -1,8 +1,6 @@
 extern crate portmidi as pm;
 extern crate signal_hook as sh;
 
-use pm::{MidiEvent, MidiMessage};
-
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -12,7 +10,7 @@ use std::time::{Duration, Instant};
 mod spotify;
 mod image;
 mod midi;
-use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer, ImageRenderer};
+use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer, ImageRenderer, IndexReader};
 use midi::launchpadpro::LaunchpadPro;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
@@ -177,44 +175,15 @@ fn forward_events<R: Reader, W: Writer>(reader: &mut R, writer: &mut W) -> Resul
     };
 }
 
-fn send_spotify_tasks<R: Reader>(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_reader: &mut R) -> Result<(), Error> {
-    return match spotify_reader.read() {
-        Ok(Some(MidiEvent { message: MidiMessage { status: 144, data1, data2, data3: _ }, timestamp: _ })) => {
-            println!("MIDI event: {:?} {:?}", data1, data2);
-            match map_to_old_index(data1).filter(|_index| data2 > 0) {
-                Some(index) => task_spawner.spawn_task(spotify::SpotifyTask {
-                    action: spotify::SpotifyAction::Play { index: index.into() },
-                    playlist_id,
-                }),
-                None => {},
-            }
+fn send_spotify_tasks<IR: IndexReader>(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_reader: &mut IR) -> Result<(), Error> {
+    return match spotify_reader.read_index() {
+        Ok(Some(index)) => {
+            task_spawner.spawn_task(spotify::SpotifyTask {
+                action: spotify::SpotifyAction::Play { index: index.into() },
+                playlist_id,
+            });
             return Ok(());
         },
         _ => Ok(()),
     };
-}
-
-fn map_to_old_index(code: u8) -> Option<u8> {
-    println!("code: {}", code);
-    let mut grid = vec![
-        vec![28, 29, 30, 31, 60, 61, 62, 63],
-        vec![24, 25, 26, 27, 56, 57, 58, 59],
-        vec![20, 21, 22, 23, 52, 53, 54, 55],
-        vec![16, 17, 18, 19, 48, 49, 50, 51],
-        vec![12, 13, 14, 15, 44, 45, 46, 47],
-        vec![08, 09, 10, 11, 40, 41, 42, 43],
-        vec![04, 05, 06, 07, 36, 37, 38, 39],
-        vec![00, 01, 02, 03, 32, 33, 34, 35],
-    ];
-
-    grid.reverse();
-
-    let row: usize = (code % 10).into();
-    let column: usize = (code / 10).into();
-
-    if row >= 1 && row <= 8 && column >= 1 && column <= 8 {
-        return Some(grid[column - 1][row - 1]);
-    } else {
-        return None;
-    }
 }
