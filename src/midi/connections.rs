@@ -83,20 +83,27 @@ impl Connections {
 }
 
 #[cfg(test)]
-#[cfg(not(feature = "launchpadpro"))]
 mod tests {
-    use std::thread;
-    use std::time::Duration;
-    use portmidi::{MidiEvent, MidiMessage};
-    use super::*;
+    #[test]
+    #[cfg(not(feature = "launchpadpro"))]
+    #[cfg(not(feature = "planckez"))]
+    fn new_should_return_ok() {
+        use super::*;
+
+        let connections = Connections::new();
+        assert!(connections.is_ok(), "Connections::new() did return an error");
+    }
 
     #[test]
-    /// CoreMIDI will crash if we instantiate PortMidi several times, and given that I am going to
-    /// run these tests on macOS most of the time, let’s write some kind of integration tests that
-    /// expect my Planck EZ keyboard (which supports MIDI) to be connected.
+    #[cfg(feature = "planckez")]
     fn connections_should_match_expectations() {
+        use std::thread;
+        use std::time::Duration;
+        use portmidi::{MidiEvent, MidiMessage};
+        use super::*;
+
         let connections = Connections::new();
-        assert!(connections.is_ok(), "`connections` should be an instance of Ok()");
+        assert!(connections.is_ok(), "Connections::new() did return an error");
 
         let name = "Planck EZ".to_string();
         let result = connections.as_ref().unwrap().create_bidirectional_ports(&name);
