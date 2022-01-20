@@ -18,7 +18,7 @@ const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 enum Config {
     LoginConfig {
-        config: spotify::authorization::SpotifyAppConfig,
+        config: spotify::SpotifyAppConfig,
     },
     RunConfig {
         config: RunConfig,
@@ -26,11 +26,10 @@ enum Config {
 }
 
 struct RunConfig {
-    spotify_app_config: spotify::authorization::SpotifyAppConfig,
+    spotify_app_config: spotify::SpotifyAppConfig,
     input_name: String,
     output_name: String,
     spotify_selector: String,
-    playlist_id: String,
 }
 
 struct Ports<'a> {
@@ -78,10 +77,14 @@ fn args() -> Result<Config, String> {
         Some("login") => {
             return match &args[2..] {
                 [client_id, client_secret] => Ok(Config::LoginConfig {
-                    config: spotify::authorization::SpotifyAppConfig {
-                        client_id: String::from(client_id),
-                        client_secret: String::from(client_secret),
-                        refresh_token: None,
+                    config: spotify::SpotifyAppConfig {
+                        authorization: spotify::authorization::SpotifyAuthorizationConfig {
+                            client_id: String::from(client_id),
+                            client_secret: String::from(client_secret),
+                            refresh_token: None,
+                        },
+                        // this is not needed to generate a refresh token
+                        playlist_id: "".to_string(),
                     },
                 }),
                 _ => Err(String::from("Usage: ./midi-hub login <client-id> <client-secret>")),
@@ -91,15 +94,17 @@ fn args() -> Result<Config, String> {
             return match &args[2..] {
                 [client_id, client_secret, input_name, output_name, spotify_selector, playlist_id, token] => Ok(Config::RunConfig {
                     config: RunConfig {
-                        spotify_app_config: spotify::authorization::SpotifyAppConfig {
-                            client_id: String::from(client_id),
-                            client_secret: String::from(client_secret),
-                            refresh_token: Some(String::from(token)),
+                        spotify_app_config: spotify::SpotifyAppConfig {
+                            authorization: spotify::authorization::SpotifyAuthorizationConfig {
+                                client_id: String::from(client_id),
+                                client_secret: String::from(client_secret),
+                                refresh_token: Some(String::from(token)),
+                            },
+                            playlist_id: String::from(playlist_id),
                         },
                         input_name: String::from(input_name),
                         output_name: String::from(output_name),
                         spotify_selector: String::from(spotify_selector),
-                        playlist_id: String::from(playlist_id),
                     },
                 }),
                 _ => Err(String::from("Usage: ./midi-hub run <client-id> <client-secret> <input-name> <output-name> <spotify-selector> <playlist-id> <spotify-token>")),
@@ -140,7 +145,7 @@ fn cycle(
                         },
                         None => {},
                     }
-                    result = send_spotify_tasks(task_spawner, config.playlist_id.clone(), &mut ports);
+                    result = send_spotify_tasks(task_spawner, &mut ports);
                     thread::sleep(MIDI_EVENT_POLL_INTERVAL);
                 }
             },
@@ -175,13 +180,10 @@ fn forward_events<R: Reader, W: Writer>(reader: &mut R, writer: &mut W) -> Resul
     };
 }
 
-fn send_spotify_tasks<IR: IndexReader>(task_spawner: &spotify::SpotifyTaskSpawner, playlist_id: String, spotify_reader: &mut IR) -> Result<(), Error> {
+fn send_spotify_tasks<IR: IndexReader>(task_spawner: &spotify::SpotifyTaskSpawner, spotify_reader: &mut IR) -> Result<(), Error> {
     return match spotify_reader.read_index() {
         Ok(Some(index)) => {
-            task_spawner.spawn_task(spotify::SpotifyTask {
-                action: spotify::SpotifyAction::Play { index: index.into() },
-                playlist_id,
-            });
+            task_spawner.spawn_task(spotify::SpotifyTask::Play { index: index.into() });
             return Ok(());
         },
         _ => Ok(()),

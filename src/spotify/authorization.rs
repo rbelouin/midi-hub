@@ -13,7 +13,7 @@ use url::Url;
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub struct SpotifyAppConfig {
+pub struct SpotifyAuthorizationConfig {
     pub client_id: String,
     pub client_secret: String,
     pub refresh_token: Option<String>,
@@ -28,7 +28,7 @@ pub struct SpotifyTokenResponse {
     pub refresh_token: Option<String>,
 }
 
-pub async fn authorize(config: &SpotifyAppConfig) -> Result<SpotifyTokenResponse, ()> {
+pub async fn authorize(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, ()> {
     let _ = spawn_authorization_browser(config).await;
     let token_response = spawn_authorization_server(config).await;
 
@@ -38,7 +38,7 @@ pub async fn authorize(config: &SpotifyAppConfig) -> Result<SpotifyTokenResponse
     };
 }
 
-pub async fn spawn_authorization_browser(config: &SpotifyAppConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn spawn_authorization_browser(config: &SpotifyAuthorizationConfig) -> Result<(), Box<dyn std::error::Error>> {
     println!("Spawning a browser!");
     let client_id = config.client_id.clone();
     let _ = tokio::task::spawn_blocking(move || {
@@ -47,7 +47,7 @@ pub async fn spawn_authorization_browser(config: &SpotifyAppConfig) -> Result<()
     return Ok(());
 }
 
-pub async fn spawn_authorization_server(config: &SpotifyAppConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+pub async fn spawn_authorization_server(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     println!("Spawning a server!");
     let server = Server::http("0.0.0.0:12345").unwrap();
     let base_url = Url::parse("http://localhost:12345")?;
@@ -73,7 +73,7 @@ pub async fn spawn_authorization_server(config: &SpotifyAppConfig) -> Result<Spo
     return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Interrupted, "Server shut down before receiving a request")));
 }
 
-pub async fn request_token(config: &SpotifyAppConfig, code: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+pub async fn request_token(config: &SpotifyAuthorizationConfig, code: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let response = client.post("https://accounts.spotify.com/api/token")
         .headers(prepare_headers(config))
@@ -90,7 +90,7 @@ pub async fn request_token(config: &SpotifyAppConfig, code: &String) -> Result<S
         .await?);
 }
 
-pub async fn refresh_token(config: &SpotifyAppConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+pub async fn refresh_token(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     match &config.refresh_token {
         Some(token) => {
             let client = reqwest::Client::new();
@@ -114,7 +114,7 @@ pub async fn refresh_token(config: &SpotifyAppConfig) -> Result<SpotifyTokenResp
     }
 }
 
-fn prepare_headers(config: &SpotifyAppConfig) -> HeaderMap {
+fn prepare_headers(config: &SpotifyAuthorizationConfig) -> HeaderMap {
     let base64_authorization = encode(format!("{}:{}", config.client_id, config.client_secret));
     let mut headers = HeaderMap::new();
     headers.insert("Authorization", format!("Basic {}", base64_authorization).parse().unwrap());
