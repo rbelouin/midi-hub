@@ -14,23 +14,24 @@ use crate::image::{Pixel, compress_from_url, compress_8x8, compress_1x1};
 use crate::midi::launchpadpro::LaunchpadPro;
 
 pub mod authorization;
+pub use authorization::SpotifyAuthorizationConfig;
 
 #[derive(Debug, Clone)]
-pub enum SpotifyAction {
+pub enum SpotifyTask {
     Play { index: usize },
     #[allow(dead_code)]
     Pause,
 }
 
 #[derive(Debug, Clone)]
-pub struct SpotifyTask {
-    pub action: SpotifyAction,
+pub struct SpotifyAppConfig {
+    pub authorization: SpotifyAuthorizationConfig,
     pub playlist_id: String,
 }
 
 #[derive(Clone)]
 pub struct SpotifyTaskSpawner {
-    config: Arc<authorization::SpotifyAppConfig>,
+    config: Arc<SpotifyAppConfig>,
     access_token: Arc<Mutex<Option<String>>>,
     cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>,
     spawn: mpsc::Sender<SpotifyTask>,
@@ -39,7 +40,7 @@ pub struct SpotifyTaskSpawner {
 const DELAY: Duration = Duration::from_millis(5_000);
 
 impl SpotifyTaskSpawner {
-    pub fn new(config: authorization::SpotifyAppConfig) -> SpotifyTaskSpawner {
+    pub fn new(config: SpotifyAppConfig) -> SpotifyTaskSpawner {
         let config = Arc::new(config);
         let access_token = Arc::new(Mutex::new(None));
         let cover_pixels = Arc::new(Mutex::new(None));
@@ -64,7 +65,7 @@ impl SpotifyTaskSpawner {
                     let mut last_action = last_action_copy.lock().unwrap();
                     if last_action.elapsed() > DELAY {
                         tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&cover_pixels), task.clone()));
-                        tokio::spawn(render_playlist_cover(config, access_token, cover_pixels, task));
+                        tokio::spawn(render_playlist_cover(config, access_token, cover_pixels));
                         *last_action = Instant::now();
                     } else {
                         println!("Ignoring task: {:?}", task);
@@ -90,7 +91,7 @@ impl SpotifyTaskSpawner {
 
         let config = Arc::clone(&self.config);
         return runtime.block_on(runtime.spawn(async move {
-            let response = authorization::authorize(config.as_ref()).await;
+            let response = authorization::authorize(&config.authorization).await;
             return match response {
                 Ok(token) => Ok(token),
                 Err(_) => {
@@ -118,11 +119,11 @@ impl SpotifyTaskSpawner {
     }
 }
 
-async fn render_playlist_cover(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
-    let SpotifyTask { action: _, playlist_id } = task;
+async fn render_playlist_cover(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>) {
     sleep(Duration::from_millis(5_000)).await;
+    let playlist_id = &config.playlist_id.clone();
     let _ = with_access_token(config, access_token, |token| async {
-        let tracks = playlist_tracks(token, &playlist_id).await.unwrap_or(vec![]);
+        let tracks = playlist_tracks(token, playlist_id).await.unwrap_or(vec![]);
         let mut pixels = vec![Pixel { r: 0, g: 0, b: 0  }; 64];
         for n in 0..tracks.len() {
             let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
@@ -137,11 +138,11 @@ async fn render_playlist_cover(config: Arc<authorization::SpotifyAppConfig>, acc
     }).await;
 }
 
-async fn handle_spotify_task(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
-    let SpotifyTask { action, playlist_id } = task;
-    let _ = match action {
-        SpotifyAction::Play { index } => with_access_token(config, access_token, |token| async {
-            let track = start_or_resume_index(token, &playlist_id, index).await;
+async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
+    let playlist_id = &config.playlist_id.clone();
+    let _ = match task {
+        SpotifyTask::Play { index } => with_access_token(config, access_token, |token| async {
+            let track = start_or_resume_index(token, playlist_id, index).await;
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
                 Some(url) => {
@@ -161,7 +162,7 @@ async fn handle_spotify_task(config: Arc<authorization::SpotifyAppConfig>, acces
             }
             return track.map(|_t| ());
         }).await,
-        SpotifyAction::Pause => with_access_token(config, access_token, |token| async {
+        SpotifyTask::Pause => with_access_token(config, access_token, |token| async {
             return pause(token).await;
         }).await,
     };
@@ -173,7 +174,7 @@ pub enum SpotifyResponseError {
     Unknown,
 }
 
-async fn with_access_token<A, F, Fut>(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, f: F) -> Result<A, ()> where
+async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, f: F) -> Result<A, ()> where
     F: Fn(String) -> Fut,
     Fut: Future<Output = Result<A, SpotifyResponseError>>,
 {
@@ -199,8 +200,8 @@ async fn with_access_token<A, F, Fut>(config: Arc<authorization::SpotifyAppConfi
     };
 }
 
-async fn fetch_and_store_access_token(config: Arc<authorization::SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>) ->  Result<String, ()> {
-    let token_response =  authorization::refresh_token(config.as_ref()).await.unwrap();
+async fn fetch_and_store_access_token(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>) ->  Result<String, ()> {
+    let token_response =  authorization::refresh_token(&config.authorization).await.unwrap();
     let mut new_token = access_token.lock().unwrap();
     *new_token = Some(token_response.access_token.clone());
     return Ok(token_response.access_token.clone());
