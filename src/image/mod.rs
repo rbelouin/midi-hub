@@ -1,13 +1,67 @@
 extern crate jpeg_decoder;
 
+use std::convert::{From, Into};
 use std::io::Read;
 use jpeg_decoder::Decoder;
+
+mod scale;
+use scale::scale;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Image {
+    pub width: usize,
+    pub height: usize,
+    pub bytes: Vec<u8>,
+}
+
+impl Image {
+    fn from(width: u16, height: u16, pixels: Vec<Pixel>) -> Image {
+        let bytes = &mut Vec::with_capacity(pixels.len() * 3);
+        for pixel in pixels {
+            bytes.push(pixel.r);
+            bytes.push(pixel.g);
+            bytes.push(pixel.b);
+        }
+
+        return Image { width: width.into(), height: height.into(), bytes: bytes.to_vec() };
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pixel {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl From<&Pixel> for [u8; 3] {
+    fn from(pixel: &Pixel) -> [u8; 3] {
+        return [pixel.r, pixel.g, pixel.b];
+    }
+}
+
+impl From<[u8; 3]> for Pixel {
+    fn from(bytes: [u8; 3]) -> Pixel {
+        return Pixel { r: bytes[0], g: bytes[1], b: bytes[2] };
+    }
+}
+
+impl From<Image> for Vec<Pixel> {
+    fn from(image: Image) -> Vec<Pixel> {
+        let mut pixels = Vec::with_capacity(image.width * image.height);
+        let mut pixel = Pixel { r: 0, g: 0, b: 0 };
+        for n in 0..image.bytes.len() {
+            match n % 3 {
+                0 => { pixel.r = image.bytes[n]; },
+                1 => { pixel.g = image.bytes[n]; },
+                _ => {
+                    pixel.b = image.bytes[n];
+                    pixels.push(pixel.clone());
+                },
+            }
+        }
+        return pixels;
+    }
 }
 
 pub async fn compress_from_url<A, F: FnOnce(u16, u16, Vec<Pixel>) -> Result<A, String>>(url: String, algo: F) -> Result<A, String> {
@@ -54,52 +108,13 @@ pub fn compress_from_decoder<A, R: Read, F: FnOnce(u16, u16, Vec<Pixel>) -> Resu
 }
 
 pub fn compress_8x8(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Vec<Pixel>, String> {
-    if (width as u32) * (height as u32) != pixels.len() as u32 {
-        return Err(format!("Number of pixels ({}) not matching width ({}) multiplied by height ({})", pixels.len(), width, height));
-    }
-
-    let mut output = vec![Pixel { r: 0, g: 0, b: 0 }; 64];
-    for new_y in 0..8u32 {
-        for new_x in 0..8u32 {
-            let mut section = vec![];
-            for y in (new_y * (height as u32) / 8)..((new_y + 1) * (height as u32) / 8) {
-                for x in (new_x * (width as u32) / 8)..((new_x + 1) * (width as u32) / 8) {
-                    section.push(pixels[((height as u32) * y + x) as usize]);
-                }
-            }
-            output[(new_y * 8 + new_x) as usize] = compress(section);
-        }
-    }
-
-    return Ok(output);
+    return scale(&Image::from(width, height, pixels), 8, 8).map_err(|err| format!("Error: {:?}", err))
+        .map(|image| Vec::from(image));
 }
 
-pub fn compress_1x1(_width: u16, _height: u16, pixels: Vec<Pixel>) -> Result<Pixel, String> {
-    return Ok(compress(pixels));
-}
-
-pub fn compress(pixels: Vec<Pixel>) -> Pixel {
-    if pixels.is_empty() {
-        return Pixel { r: 0, g: 0, b: 0 };
-    }
-
-    let mut r = 0u32;
-    let mut g = 0u32;
-    let mut b = 0u32;
-
-    for i in 0..pixels.len() {
-        r += pixels[i].r as u32;
-        g += pixels[i].g as u32;
-        b += pixels[i].b as u32;
-    }
-
-    let len = pixels.len() as u32;
-
-    return Pixel {
-        r: (r / len) as u8,
-        g: (g / len) as u8,
-        b: (b / len) as u8,
-    };
+pub fn compress_1x1(width: u16, height: u16, pixels: Vec<Pixel>) -> Result<Pixel, String> {
+    return scale(&Image::from(width, height, pixels), 1, 1).map_err(|err| format!("Error: {:?}", err))
+        .map(|image| Vec::from(image)[0]);
 }
 
 #[cfg(test)]
@@ -139,163 +154,5 @@ mod tests {
         let encoder = Encoder::new_file("src/image/test-cover-output.jpg", 100).unwrap();
         let data: Vec<u8> = result.unwrap().iter().flat_map(|pixel| vec![pixel.r, pixel.g, pixel.b]).collect();
         let _ = encoder.encode(data.as_ref(), 8, 8, ColorType::Rgb);
-    }
-
-    #[test]
-    fn test_compress_8x8_invalid_input_should_return_error() {
-        let result = compress_8x8(16, 16, vec![]);
-        assert!(result.is_err(), "result should be an error, got {:?}", result);
-    }
-
-    #[test]
-    fn test_compress_8x8_valid_input_should_compress_picture() {
-        // black
-        let b = Pixel { r: 0, g: 0, b: 0 };
-        // white
-        let w = Pixel { r: 255, g: 255, b: 255 };
-        // grey
-        let g = Pixel { r: 127, g: 127, b: 127 };
-
-        let input = vec![
-            b, b, b, b, b, b, b, b, b, b, b, b, b, b, b, b,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            b, b, b, b, b, b, b, b, b, b, b, b, b, b, b, b,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            b, b, b, b, b, b, b, b, b, b, b, b, b, b, b, b,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            b, b, b, b, b, b, b, b, b, b, b, b, b, b, b, b,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-            w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w,
-            w, w, b, b, w, w, b, b, w, w, b, b, w, w, b, b,
-        ];
-
-        let expected_output = vec![
-            g, b, g, b, g, b, g, b,
-            w, g, w, g, w, g, w, g,
-            g, b, g, b, g, b, g, b,
-            w, g, w, g, w, g, w, g,
-            g, b, g, b, g, b, g, b,
-            w, g, w, g, w, g, w, g,
-            g, b, g, b, g, b, g, b,
-            w, g, w, g, w, g, w, g,
-        ];
-
-        assert_eq!(compress_8x8(16, 16, input), Ok(expected_output));
-    }
-
-    #[test]
-    fn test_compress_no_pixels_should_return_black() {
-        assert_eq!(compress(vec![]), Pixel { r: 0, g: 0, b: 0 });
-    }
-
-    #[test]
-    fn test_compress_monochrome_pixels_return_same_pixel() {
-        let count = rand::random::<usize>() % 1023 + 1;
-        let pixel = Pixel {
-            r: rand::random::<u8>(),
-            g: rand::random::<u8>(),
-            b: rand::random::<u8>(),
-        };
-        let pixels = vec![pixel; count];
-
-        assert_eq!(compress(pixels), pixel);
-    }
-
-    #[test]
-    fn test_compress_shades_of_red_return_shade_of_red() {
-        let count = rand::random::<usize>() % 1023 + 1;
-        let mut pixels = vec![Pixel { r: 0, g: 0, b: 0 }; count];
-        pixels[0].r = 30;
-        for i in 1..pixels.len() {
-            pixels[i].r = rand::random::<u8>();
-        }
-
-        let compressed_pixel = compress(pixels);
-        assert!(compressed_pixel.r > 0, "red channel should be greater than zero, got {}", compressed_pixel.r);
-        assert_eq!(compressed_pixel.g, 0);
-        assert_eq!(compressed_pixel.b, 0);
-    }
-
-    #[test]
-    fn test_compress_shades_of_green_return_shade_of_green() {
-        let count = rand::random::<usize>() % 1023 + 1;
-        let mut pixels = vec![Pixel { r: 0, g: 0, b: 0 }; count];
-        pixels[0].g = 30;
-        for i in 1..pixels.len() {
-            pixels[i].g = rand::random::<u8>();
-        }
-
-        let compressed_pixel = compress(pixels);
-        assert_eq!(compressed_pixel.r, 0);
-        assert!(compressed_pixel.g > 0, "green channel should be greater than zero, got {}", compressed_pixel.g);
-        assert_eq!(compressed_pixel.b, 0);
-    }
-
-    #[test]
-    fn test_compress_shades_of_blue_return_shade_of_blue() {
-        let count = rand::random::<usize>() % 1023 + 1;
-        let mut pixels = vec![Pixel { r: 0, g: 0, b: 0 }; count];
-        pixels[0].b = 30;
-        for i in 1..pixels.len() {
-            pixels[i].b = rand::random::<u8>();
-        }
-
-        let compressed_pixel = compress(pixels);
-        assert_eq!(compressed_pixel.r, 0);
-        assert_eq!(compressed_pixel.g, 0);
-        assert!(compressed_pixel.b > 0, "blue channel should be greater than zero, got {}", compressed_pixel.b);
-    }
-
-    #[test]
-    fn test_compress_return_between_extreme_values() {
-        let mut pixels = vec![Pixel { r: 0, g: 0, b: 0 }; 2];
-
-        let mut min_r = u8::MAX;
-        let mut max_r = u8::MIN;
-        let mut min_g = u8::MAX;
-        let mut max_g = u8::MIN;
-        let mut min_b = u8::MAX;
-        let mut max_b = u8::MIN;
-
-        for i in 0..pixels.len() {
-            pixels[i].r = rand::random::<u8>();
-            pixels[i].g = rand::random::<u8>();
-            pixels[i].b = rand::random::<u8>();
-
-            if pixels[i].r < min_r {
-                min_r = pixels[i].r;
-            }
-
-            if pixels[i].r > max_r {
-                max_r = pixels[i].r;
-            }
-
-            if pixels[i].g < min_g {
-                min_g = pixels[i].g;
-            }
-
-            if pixels[i].g > max_g {
-                max_g = pixels[i].g;
-            }
-
-            if pixels[i].b < min_b {
-                min_b = pixels[i].b;
-            }
-
-            if pixels[i].b > max_b {
-                max_b = pixels[i].b;
-            }
-        }
-
-        let compressed_pixel = compress(pixels);
-        assert!(min_r <= compressed_pixel.r && max_r >= compressed_pixel.r, "red channel should be in [{}; {}], got {}", min_r, max_r, compressed_pixel.r);
-        assert!(min_g <= compressed_pixel.g && max_g >= compressed_pixel.g, "green channel should be in [{}; {}], got {}", min_g, max_g, compressed_pixel.g);
-        assert!(min_b <= compressed_pixel.b && max_b >= compressed_pixel.b, "blue channel should be in [{}; {}], got {}", min_b, max_b, compressed_pixel.b);
     }
 }
