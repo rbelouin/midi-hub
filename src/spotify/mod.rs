@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 
 use reqwest::{StatusCode, header::HeaderMap};
 
-use crate::image::{Pixel, compress_from_url, compress_8x8, compress_1x1};
-use crate::midi::launchpadpro::LaunchpadPro;
+use crate::image::Image;
 
 pub mod authorization;
 pub use authorization::SpotifyAuthorizationConfig;
@@ -33,7 +32,7 @@ pub struct SpotifyAppConfig {
 pub struct SpotifyTaskSpawner {
     config: Arc<SpotifyAppConfig>,
     access_token: Arc<Mutex<Option<String>>>,
-    cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>,
+    selected_covers: Arc<Mutex<Option<Vec<Image>>>>,
     spawn: mpsc::Sender<SpotifyTask>,
 }
 
@@ -43,7 +42,7 @@ impl SpotifyTaskSpawner {
     pub fn new(config: SpotifyAppConfig) -> SpotifyTaskSpawner {
         let config = Arc::new(config);
         let access_token = Arc::new(Mutex::new(None));
-        let cover_pixels = Arc::new(Mutex::new(None));
+        let selected_covers = Arc::new(Mutex::new(None));
         let (send, mut recv) = mpsc::channel::<SpotifyTask>(32);
         let last_action = Arc::new(Mutex::new(Instant::now() - DELAY));
 
@@ -53,7 +52,7 @@ impl SpotifyTaskSpawner {
             .unwrap();
 
         let access_token_copy = Arc::clone(&access_token);
-        let cover_pixels_copy = Arc::clone(&cover_pixels);
+        let selected_covers_copy = Arc::clone(&selected_covers);
         let config_copy = Arc::clone(&config);
         let last_action_copy = Arc::clone(&last_action);
         std::thread::spawn(move || {
@@ -61,11 +60,11 @@ impl SpotifyTaskSpawner {
                 while let Some(task) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let access_token = Arc::clone(&access_token_copy);
-                    let cover_pixels = Arc::clone(&cover_pixels_copy);
+                    let selected_covers = Arc::clone(&selected_covers_copy);
                     let mut last_action = last_action_copy.lock().unwrap();
                     if last_action.elapsed() > DELAY {
-                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&cover_pixels), task.clone()));
-                        tokio::spawn(render_playlist_cover(config, access_token, cover_pixels));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&selected_covers), task.clone()));
+                        tokio::spawn(reset_selected_covers(config, access_token, selected_covers));
                         *last_action = Instant::now();
                     } else {
                         println!("Ignoring task: {:?}", task);
@@ -77,7 +76,7 @@ impl SpotifyTaskSpawner {
         SpotifyTaskSpawner {
             config,
             access_token,
-            cover_pixels,
+            selected_covers,
             spawn: send,
         }
     }
@@ -109,36 +108,39 @@ impl SpotifyTaskSpawner {
         }
     }
 
-    pub fn cover_pixels(&self) -> Option<Vec<Pixel>> {
-        let value = self.cover_pixels.lock().unwrap().clone();
+    pub fn selected_covers(&self) -> Option<Vec<Image>> {
+        let value = self.selected_covers.lock().unwrap().clone();
         if value != None {
-            let mut cover_pixel = self.cover_pixels.lock().unwrap();
-            *cover_pixel = None;
+            let mut selected_covers = self.selected_covers.lock().unwrap();
+            *selected_covers = None;
         }
         return value;
     }
 }
 
-async fn render_playlist_cover(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>) {
+async fn reset_selected_covers(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, selected_covers: Arc<Mutex<Option<Vec<Image>>>>) {
     sleep(Duration::from_millis(5_000)).await;
     let playlist_id = &config.playlist_id.clone();
     let _ = with_access_token(config, access_token, |token| async {
         let tracks = playlist_tracks(token, playlist_id).await.unwrap_or(vec![]);
-        let mut pixels = vec![Pixel { r: 0, g: 0, b: 0  }; 64];
+        let mut images = Vec::with_capacity(tracks.len());
+        let fallback_image = Image { width: 64, height: 64, bytes: vec![0; 64*64*3] };
         for n in 0..tracks.len() {
             let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
             if image_url.is_some() {
-                pixels[LaunchpadPro::map_index(n as u8) as usize] =  compress_from_url(image_url.unwrap(), compress_1x1).await.unwrap_or(pixels[LaunchpadPro::map_index(n as u8) as usize]);
+                images.push(Image::from_url(&image_url.unwrap()).await.unwrap_or(fallback_image.clone()));
+            } else {
+                images.push(fallback_image.clone());
             }
         };
 
-        let mut new_cover_pixels = cover_pixels.lock().unwrap();
-        *new_cover_pixels = Some(pixels);
+        let mut new_selected_covers = selected_covers.lock().unwrap();
+        *new_selected_covers = Some(images);
         return Ok(());
     }).await;
 }
 
-async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, cover_pixels: Arc<Mutex<Option<Vec<Pixel>>>>, task: SpotifyTask) {
+async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, selected_covers: Arc<Mutex<Option<Vec<Image>>>>, task: SpotifyTask) {
     let playlist_id = &config.playlist_id.clone();
     let _ = match task {
         SpotifyTask::Play { index } => with_access_token(config, access_token, |token| async {
@@ -146,15 +148,15 @@ async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mu
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
                 Some(url) => {
-                    let pixels = compress_from_url(url.clone(), compress_8x8).await;
-                    let mut new_cover_pixels = cover_pixels.lock().unwrap();
-                    match pixels {
-                        Ok(pixels) => {
-                            *new_cover_pixels = Some(pixels);
+                    let image = Image::from_url(&url).await;
+                    let mut new_selected_covers = selected_covers.lock().unwrap();
+                    match image {
+                        Ok(image) => {
+                            *new_selected_covers = Some(vec![image]);
                         },
                         Err(_) => {
-                            println!("Could not compress {}", url);
-                            *new_cover_pixels = None;
+                            println!("Could not download and decode {}", url);
+                            *new_selected_covers = None;
                         },
                     }
                 },

@@ -1,5 +1,5 @@
 use std::convert::From;
-use crate::image::Pixel;
+use crate::image::{Image, scale};
 use super::{InputPort, OutputPort, MidiEvent, Error, Reader, Writer, ImageRenderer, IndexReader};
 
 pub struct LaunchpadPro<'a> {
@@ -8,22 +8,73 @@ pub struct LaunchpadPro<'a> {
 }
 
 impl LaunchpadPro<'_> {
-    /// TODO let consumers assume they can render a picture from the top-left corner and keep this
-    /// logic internal.
-    pub fn map_index(i: u8) -> u8 {
-        let index = if i > 63 {
-            63
-        } else {
-            i
-        };
+    pub const WIDTH: usize = 8;
+    pub const HEIGHT: usize = 8;
+    pub const SIZE: usize = Self::WIDTH * Self::HEIGHT;
 
-        let row = index / 4;
+    fn render_one_image(&mut self, image: &Image) -> Result<(), Error> {
+        let scaled_image = scale(image, Self::WIDTH, Self::HEIGHT).map_err(|_| Error::ImageRenderError)?;
+        return self.render_24bit_image_reversed(scaled_image.bytes);
+    }
 
-        if row < 8 {
-            return (7 - row) * 8 + (index % 4);
-        } else {
-            return (15 - row) * 8 + 4 + (index % 4);
+    fn render_one_image_per_pad(&mut self, images: &Vec<Image>) -> Result<(), Error> {
+        let fallback_pixel = Image { width: 1, height: 1, bytes: vec![0; 3] };
+        let mosaic = images.into_iter()
+            .map(|image| scale(image, 1, 1).unwrap_or(fallback_pixel.clone()))
+            .flat_map(|image| image.bytes)
+            .collect::<Vec<u8>>();
+        return self.render_24bit_image(mosaic);
+    }
+
+    /// The LaunchpadPro’s coordinate system places the origin at the bottom-left corner, so we
+    /// need to give an easy option to render an image with (0,0) being the top-left corner.
+    fn render_24bit_image_reversed(&mut self, bytes: Vec<u8>) -> Result<(), Error> {
+        let reversed_bytes = Self::reverse_rows(bytes)?;
+        return self.render_24bit_image(reversed_bytes);
+    }
+
+    fn render_24bit_image(&mut self, bytes: Vec<u8>) -> Result<(), Error> {
+        // one byte for each color
+        let size = Self::SIZE * 3;
+
+        if bytes.len() != size {
+            println!("[launchpadpro] error when trying to render an image with {} bytes", bytes.len());
+            return Err(Error::ImageRenderError);
         }
+
+        let mut picture = Vec::with_capacity(size);
+        picture.append(&mut vec![240, 0, 32, 41, 2, 16, 15, 1]);
+        for byte in bytes {
+            // The LaunchpadPro also only supports values from the [0; 64[ range, so we need to make sure
+            // that our 24-bit-RGB-color bytes get transformed.
+            picture.push(byte / 4);
+        }
+        picture.append(&mut vec![247]);
+
+        return self.output_port.write_sysex(0, &picture)
+            .map_err(|_| Error::ImageRenderError);
+    }
+
+    fn reverse_rows(bytes: Vec<u8>) -> Result<Vec<u8>, Error> {
+        // one byte for each color
+        let size = Self::SIZE * 3;
+
+        if bytes.len() != size {
+            println!("[launchpadpro] error when trying to render an image with {} bytes", bytes.len());
+            return Err(Error::ImageRenderError);
+        }
+
+        let mut reversed_bytes = vec![0; size];
+
+        for y in 0..Self::HEIGHT {
+            for x in 0..Self::WIDTH {
+                for c in 0..3 {
+                    reversed_bytes[3 * (y * Self::WIDTH + x) + c] = bytes[3 * ((Self::HEIGHT - 1 - y) * Self::WIDTH + x) + c];
+                }
+            }
+        }
+
+        return Ok(reversed_bytes);
     }
 }
 
@@ -35,7 +86,12 @@ impl<'a> From<(InputPort<'a>, OutputPort<'a>)> for LaunchpadPro<'a> {
 
 impl Reader for LaunchpadPro<'_> {
     fn read(&mut self) -> Result<Option<MidiEvent>, Error> {
-        return Reader::read(&mut self.input_port);
+        let event = Reader::read(&mut self.input_port);
+        match event {
+            Ok(Some(event)) => println!("event: {:?}", event),
+            _ => {},
+        }
+        return event;
     }
 }
 
@@ -72,31 +128,16 @@ impl Writer for LaunchpadPro<'_> {
     }
 }
 
-impl ImageRenderer<Vec<Pixel>> for LaunchpadPro<'_> {
-    fn render(&mut self, pixels: Vec<Pixel>) -> Result<(), Error> {
-        if pixels.len() != 64 {
-            println!("Error: the number of pixels is not 64: {}", pixels.len());
-            return Err(Error::ImageRenderError);
+impl ImageRenderer<Vec<Image>> for LaunchpadPro<'_> {
+    fn render(&mut self, images: Vec<Image>) -> Result<(), Error> {
+        return match images.len() {
+            1 => self.render_one_image(&images[0]),
+            Self::SIZE => self.render_one_image_per_pad(&images),
+            _ => {
+                println!("[launchpadpro] unsupported number of images: {}", images.len());
+                return Err(Error::ImageRenderError);
+            },
         }
-
-        let mut reversed_pixels = vec![Pixel { r: 0, g: 0, b: 0 }; 64];
-        for y in 0..8 {
-            for x in 0..8 {
-                reversed_pixels[y * 8 + x] = pixels[(7 - y) * 8 + x];
-            }
-        }
-
-        let mut transformed_pixels = reversed_pixels
-            .iter()
-            .flat_map(|pixel| vec![pixel.r / 4, pixel.g / 4, pixel.b / 4])
-            .collect();
-
-        let mut picture = vec![240, 0, 32, 41, 2, 16, 15, 1];
-        picture.append(&mut transformed_pixels);
-        picture.append(&mut vec![247]);
-
-        return self.output_port.write_sysex(0, &picture)
-            .map_err(|_| Error::ImageRenderError);
     }
 }
 
@@ -104,6 +145,32 @@ impl ImageRenderer<Vec<Pixel>> for LaunchpadPro<'_> {
 mod tests {
     use super::super::MidiMessage;
     use super::*;
+
+    #[test]
+    fn test_reverse_rows() {
+        let input = vec![
+            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+            2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+            3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+            4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+            5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+            6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+            7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+        ];
+
+        let actual_output = LaunchpadPro::reverse_rows(input).expect("Test input is expected to be valid");
+        assert_eq!(actual_output, vec![
+            7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+            6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+            5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+            4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+            3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+            2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+            1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        ]);
+    }
 
     #[test]
     fn map_event_to_index_given_incorrect_status_should_return_none() {
@@ -174,20 +241,19 @@ mod tests {
         match ports {
             Ok(ports) => {
                 let mut launchpadpro = LaunchpadPro::from(ports);
-                let mut pixels = vec![Pixel { r: 0, g: 0, b: 0 }; 64];
+                let mut bytes = vec![0u8; LaunchpadPro::SIZE * 3];
 
-                for n in 0..64 {
-                    let row: u16 = n / 8;
-                    let column: u16 = n % 8;
-                    let index = row + column;
-                    pixels[n as usize] = Pixel {
-                        r: 255 - (index * 255 / 14) as u8,
-                        g: 0,
-                        b: (index * 255 / 14) as u8,
-                    };
+                for y in 0..LaunchpadPro::HEIGHT {
+                    for x in 0..LaunchpadPro::WIDTH {
+                        let index = x + y;
+                        let max = (LaunchpadPro::WIDTH - 1) + (LaunchpadPro::HEIGHT - 1);
+                        bytes[3 * (y * LaunchpadPro::WIDTH + x) + 0] = (255 - 255 * index / max) as u8;
+                        bytes[3 * (y * LaunchpadPro::WIDTH + x) + 1] = 0;
+                        bytes[3 * (y * LaunchpadPro::WIDTH + x) + 2] = (255 * index / max) as u8;
+                    }
                 }
 
-                let result = launchpadpro.render(pixels);
+                let result = launchpadpro.render_24bit_image_reversed(bytes);
                 assert!(result.is_ok(), "The LaunchpadPro could not render the given image");
             },
             Err(_) => {
