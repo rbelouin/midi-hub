@@ -1,12 +1,10 @@
 extern crate jpeg_decoder;
 
-use std::convert::From;
-
 mod image;
-use image::Image;
+pub use image::Image;
 
 mod scale;
-use scale::scale;
+pub use scale::scale;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Error {
@@ -16,58 +14,6 @@ pub enum Error {
     HttpRequestError,
     HttpParseError,
     FileOpenError,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Pixel {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
-
-impl From<&Pixel> for [u8; 3] {
-    fn from(pixel: &Pixel) -> [u8; 3] {
-        return [pixel.r, pixel.g, pixel.b];
-    }
-}
-
-impl From<[u8; 3]> for Pixel {
-    fn from(bytes: [u8; 3]) -> Pixel {
-        return Pixel { r: bytes[0], g: bytes[1], b: bytes[2] };
-    }
-}
-
-impl From<Image> for Vec<Pixel> {
-    fn from(image: Image) -> Vec<Pixel> {
-        let mut pixels = Vec::with_capacity(image.width * image.height);
-        let mut pixel = Pixel { r: 0, g: 0, b: 0 };
-        for n in 0..image.bytes.len() {
-            match n % 3 {
-                0 => { pixel.r = image.bytes[n]; },
-                1 => { pixel.g = image.bytes[n]; },
-                _ => {
-                    pixel.b = image.bytes[n];
-                    pixels.push(pixel.clone());
-                },
-            }
-        }
-        return pixels;
-    }
-}
-
-pub async fn compress_from_url<A, F: FnOnce(&Image) -> Result<A, String>>(url: String, algo: F) -> Result<A, String> {
-    let image = Image::from_url(&url).await.map_err(|err| format!("Error: {:?}", err))?;
-    return algo(&image);
-}
-
-pub fn compress_8x8(image: &Image) -> Result<Vec<Pixel>, String> {
-    return scale(image, 8, 8).map_err(|err| format!("Error: {:?}", err))
-        .map(|image| Vec::from(image));
-}
-
-pub fn compress_1x1(image: &Image) -> Result<Pixel, String> {
-    return scale(image, 1, 1).map_err(|err| format!("Error: {:?}", err))
-        .map(|image| Vec::from(image)[0]);
 }
 
 #[cfg(test)]
@@ -86,17 +32,17 @@ mod tests {
     // change. There’s a risk it becomes flaky, but I’ll keep it until the cost/benefit balance
     // becomes bad.
     #[test]
-    fn test_compress_from_url() {
+    fn test_load_cover_from_url_and_scale_to_8x8() {
         let rt  =  tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let url = "https://i.scdn.co/image/ab67616d00004851a5c51e96d2583bfb3e45d504".to_string();
-            let result =  compress_from_url(url, compress_8x8).await;
+            let image = Image::from_url(&url).await.expect("Expected the image to be downloadable");
+            let scaled_image = scale(&image, 8, 8).expect("Expected the image to be scalable");
 
             let encoder = Encoder::new_file(Path::new(file!()).with_file_name("test/cover-generated-small.jpg"), 100).unwrap();
-            let data: Vec<u8> = result.as_ref().unwrap().iter().flat_map(|pixel| vec![pixel.r, pixel.g, pixel.b]).collect();
-            let _ = encoder.encode(data.as_ref(), 8, 8, ColorType::Rgb);
+            let _ = encoder.encode(&scaled_image.bytes, scaled_image.width as u16, scaled_image.height as u16, ColorType::Rgb);
 
-            insta::assert_debug_snapshot!(result);
+            insta::assert_debug_snapshot!(scaled_image);
         });
     }
 

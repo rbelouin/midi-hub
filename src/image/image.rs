@@ -6,7 +6,7 @@ use std::path::Path;
 extern crate jpeg_decoder;
 use jpeg_decoder::{Decoder, PixelFormat};
 
-use super::{Error, Pixel};
+use super::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Image {
@@ -16,17 +16,6 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn from(width: u16, height: u16, pixels: Vec<Pixel>) -> Image {
-        let bytes = &mut Vec::with_capacity(pixels.len() * 3);
-        for pixel in pixels {
-            bytes.push(pixel.r);
-            bytes.push(pixel.g);
-            bytes.push(pixel.b);
-        }
-
-        return Image { width: width.into(), height: height.into(), bytes: bytes.to_vec() };
-    }
-
     pub fn from_decoder<R: Read>(decoder: &mut Decoder<R>) -> Result<Image, Error> {
         let bytes = decoder.decode().map_err(|_| Error::JpegDecodingError)?;
         let info = decoder.info().ok_or(Error::JpegInfoError)?;
@@ -66,19 +55,6 @@ impl Image {
 pub mod tests {
     use std::fs::File;
     use super::*;
-
-    #[test]
-    fn test_from_pixels() {
-        let output = Image::from(3, 3, vec![
-            Pixel { r: 00, g: 00, b: 00 }, Pixel { r: 10, g: 10, b: 10 }, Pixel { r: 20, g: 20, b: 20 },
-            Pixel { r: 30, g: 30, b: 30 }, Pixel { r: 40, g: 40, b: 40 }, Pixel { r: 50, g: 50, b: 50 },
-            Pixel { r: 60, g: 60, b: 60 }, Pixel { r: 70, g: 70, b: 70 }, Pixel { r: 80, g: 80, b: 80 },
-        ]);
-
-        assert_eq!(output, Image { width: 3, height: 3, bytes: vec![
-            0, 0, 0, 10, 10, 10, 20, 20, 20, 30, 30, 30, 40, 40, 40, 50, 50, 50, 60, 60, 60, 70, 70, 70, 80, 80, 80
-        ] });
-    }
 
     pub fn given_cover_image_decoder() -> Decoder<BufReader<File>> {
         let file = File::open(Path::new(file!()).with_file_name("test/cover.jpg")).expect("failed to open picture");

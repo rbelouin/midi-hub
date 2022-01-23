@@ -138,10 +138,10 @@ fn cycle(
                     && result.is_ok()
                     && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
                 {
-                    let cover_pixels = task_spawner.cover_pixels();
-                    match cover_pixels {
-                        Some(pixels) => {
-                            let _ = ports.render(pixels);
+                    let selected_covers = task_spawner.selected_covers();
+                    match selected_covers {
+                        Some(images) => {
+                            let _ = ports.render(images);
                         },
                         None => {},
                     }
