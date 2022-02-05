@@ -240,6 +240,18 @@ pub struct SpotifyPlaylistResponse {
     items: Vec<SpotifyPlaylistItem>
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct SpotifyDevice {
+    id: String,
+    is_active: bool,
+    name: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SpotifyDeviceResponse {
+    devices: Vec<SpotifyDevice>,
+}
+
 pub async fn start_or_resume_index(token: String, playlist_id: &String, index: usize) -> Result<SpotifyTrack, SpotifyResponseError> {
     println!("[Spotify] Playing track {} from playlist {}", index, playlist_id);
     let tracks = playlist_tracks(token.clone(), playlist_id).await?;
@@ -274,8 +286,10 @@ pub async fn playlist_tracks(token: String, playlist_id: &String) -> Result<Vec<
 pub async fn start_or_resume_track(token: String, track_uri: &String) -> Result<(), SpotifyResponseError> {
     let client = reqwest::Client::new();
 
-    println!("[Spotify] Playing track {}", track_uri);
-    let response = client.put(format!("https://api.spotify.com/v1/me/player/play"))
+    let device = get_active_device(&token).await?;
+
+    println!("[Spotify] Playing track {} on device {}", track_uri, device.id);
+    let response = client.put(format!("https://api.spotify.com/v1/me/player/play?device_id={}", device.id))
         .headers(headers(&token))
         .json(&json!({
             "uris": vec![&track_uri]
@@ -306,6 +320,36 @@ pub async fn pause(token: String) -> Result<(), SpotifyResponseError> {
     } else {
         return Ok(());
     }
+}
+
+pub async fn get_devices(token: &String) -> Result<SpotifyDeviceResponse, SpotifyResponseError> {
+    let client = reqwest::Client::new();
+
+    println!("[Spotify] Get devices");
+    let response = client.get(format!("https://api.spotify.com/v1/me/player/devices"))
+        .headers(headers(token))
+        .send()
+        .await
+        .map_err(|_err| SpotifyResponseError::Unknown)?;
+
+    println!("Status: {}", response.status());
+    if response.status() == StatusCode::UNAUTHORIZED {
+        return Err(SpotifyResponseError::NotAuthorized);
+    } else {
+        let response = response
+            .json::<SpotifyDeviceResponse>()
+            .await
+            .map_err(|_err| SpotifyResponseError::Unknown)?;
+
+        return Ok(response);
+    }
+}
+
+pub async fn get_active_device(token: &String) -> Result<SpotifyDevice, SpotifyResponseError> {
+    let response = get_devices(token).await?;
+    let first_device = response.devices.get(0).map(|d| d.clone());
+    let active_device = response.devices.into_iter().find(|device| device.is_active);
+    return active_device.or(first_device).ok_or(SpotifyResponseError::Unknown);
 }
 
 fn headers(token: &String) -> HeaderMap {
