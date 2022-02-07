@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::spotify;
 use crate::midi;
-use midi::{Connections, Error, InputPort, OutputPort, Reader, Writer, ImageRenderer, IndexReader};
+use midi::{Connections, Error, Reader, Writer, ImageRenderer, IndexReader};
 use midi::launchpadpro::LaunchpadPro;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
@@ -18,12 +18,6 @@ pub struct RunConfig {
     pub input_name: String,
     pub output_name: String,
     pub spotify_selector: String,
-}
-
-struct Ports<'a> {
-    input: Result<InputPort<'a>, Error>,
-    output: Result<OutputPort<'a>, Error>,
-    spotify: Result<LaunchpadPro<'a>, Error>,
 }
 
 pub fn run(config: &RunConfig) -> Result<(), Error> {
@@ -46,53 +40,43 @@ fn cycle(
     term: &Arc<AtomicBool>,
 ) -> Result<(), Error> {
     return Connections::new().and_then(|connections| {
-        let ports = select_ports(&connections, &config);
+        let mut input = connections.create_input_port(&config.input_name);
+        let mut output = connections.create_output_port(&config.output_name);
+        let mut spotify = connections.create_bidirectional_ports(&config.spotify_selector)
+            .map(|ports| LaunchpadPro::from(ports));
+
         let mut result = Ok(());
-        match ports {
-            Ports { input: Ok(mut input_port), output: Ok(mut output_port), spotify: _ } => {
-                while !term.load(Ordering::Relaxed)
-                    && result.is_ok()
-                    && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
-                {
-                    result = forward_events(&mut input_port, &mut output_port);
-                    thread::sleep(MIDI_EVENT_POLL_INTERVAL);
-                }
-            },
-            Ports { input: _, output: _, spotify: Ok(mut ports) } => {
-                while !term.load(Ordering::Relaxed)
-                    && result.is_ok()
-                    && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL
-                {
+
+        while !term.load(Ordering::Relaxed) && result.is_ok() && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL {
+            let forward_result = match (input.as_mut(), output.as_mut()) {
+                (Ok(i), Ok(o)) => forward_events(i, o),
+                (Err(e), _) => Err(*e),
+                (_, Err(e)) => Err(*e),
+            };
+
+            let spotify_result = match spotify.as_mut() {
+                Ok(spotify) => {
                     let selected_covers = task_spawner.selected_covers();
                     match selected_covers {
                         Some(images) => {
-                            let _ = ports.render(images);
+                            let _ = spotify.render(images);
                         },
                         None => {},
                     }
-                    result = send_spotify_tasks(task_spawner, &mut ports);
-                    thread::sleep(MIDI_EVENT_POLL_INTERVAL);
-                }
-            },
-            _ => {
-                println!("Could not find the configured ports");
-                thread::sleep(MIDI_DEVICE_POLL_INTERVAL);
-            },
+                    send_spotify_tasks(task_spawner, spotify)
+                },
+                Err(e) => Err(*e),
+            };
+
+            result = forward_result.or(spotify_result);
+            match result {
+                Ok(_) => thread::sleep(MIDI_EVENT_POLL_INTERVAL),
+                _ => thread::sleep(MIDI_DEVICE_POLL_INTERVAL),
+            }
         }
+
         return result;
     });
-}
-
-fn select_ports<'a, 'b, 'c>(
-    connections: &'a Connections,
-    config: &'b RunConfig,
-) -> Ports<'a> {
-    let input = connections.create_input_port(&config.input_name);
-    let output = connections.create_output_port(&config.output_name);
-    let spotify = connections.create_bidirectional_ports(&config.spotify_selector)
-        .map(|ports| LaunchpadPro::from(ports));
-
-    return Ports { input, output, spotify };
 }
 
 fn forward_events<R: Reader, W: Writer>(reader: &mut R, writer: &mut W) -> Result<(), Error> {
