@@ -21,8 +21,7 @@ fn main() {
     let result = args().and_then(|config| {
         match config {
             Config::LoginConfig { config } => {
-                let task_spawner = spotify::SpotifyTaskSpawner::new(config.clone());
-                return task_spawner.login_sync().and_then(|token| token.refresh_token.ok_or(()))
+                return spotify::SpotifyTaskSpawner::login_sync(config.clone()).and_then(|token| token.refresh_token.ok_or(()))
                     .map(|refresh_token| {
                         println!("Please use this refresh token to start the service: {:?}", refresh_token);
                         return ();
@@ -30,7 +29,7 @@ fn main() {
                     .map_err(|()| String::from("Could not log in"));
             },
             Config::RunConfig { config } => {
-                let router = router::Router::new(config);
+                let mut router = router::Router::new(config);
                 router.run().map_err(|err| format!("{}", err))
             }
         }

@@ -5,8 +5,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tokio::sync::mpsc;
+
 use crate::spotify;
 use crate::midi;
+use crate::image;
 use midi::{Connections, Error, Writer, ImageRenderer, IndexReader};
 use midi::launchpadpro::LaunchpadPro;
 
@@ -20,26 +23,33 @@ pub struct RunConfig {
     pub spotify_selector: String,
 }
 
+pub enum Command {
+    RenderImages(Vec<image::Image>),
+}
+
 pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
     spotify_spawner: spotify::SpotifyTaskSpawner,
+    receiver: mpsc::Receiver<Command>,
 }
 
 impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone());
+        let (sender, receiver) = mpsc::channel::<Command>(32);
+        let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
 
         return Router {
             config,
             term,
             spotify_spawner,
+            receiver,
         };
     }
 
-    pub fn run(&self) -> Result<(), Error> {
+    pub fn run(&mut self) -> Result<(), Error> {
         println!("Press ^C or send SIGINT to terminate the program");
         let _sigint = sh::flag::register(sh::consts::signal::SIGINT, Arc::clone(&self.term));
 
@@ -50,7 +60,7 @@ impl Router {
         return inner_result;
     }
 
-    fn run_one_cycle(&self, start: Instant) -> Result<(), Error> {
+    fn run_one_cycle(&mut self, start: Instant) -> Result<(), Error> {
         return Connections::new().and_then(|connections| {
             let mut input = connections.create_input_port(&self.config.input_name);
             let mut output = connections.create_output_port(&self.config.output_name);
@@ -74,12 +84,12 @@ impl Router {
 
                 let spotify_result = match spotify.as_mut() {
                     Ok(spotify) => {
-                        let selected_covers = self.spotify_spawner.selected_covers();
+                        let selected_covers = self.receiver.try_recv();
                         match selected_covers {
-                            Some(images) => {
+                            Ok(Command::RenderImages(images)) => {
                                 let _ = spotify.render(images);
                             },
-                            None => {},
+                            _ => {},
                         }
 
                         match spotify.read_index() {
