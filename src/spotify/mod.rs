@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use reqwest::{StatusCode, header::HeaderMap};
 
 use crate::image::Image;
+use crate::router::Command;
 
 pub mod authorization;
 pub use authorization::SpotifyAuthorizationConfig;
@@ -32,17 +33,16 @@ pub struct SpotifyAppConfig {
 pub struct SpotifyTaskSpawner {
     config: Arc<SpotifyAppConfig>,
     access_token: Arc<Mutex<Option<String>>>,
-    selected_covers: Arc<Mutex<Option<Vec<Image>>>>,
     spawn: mpsc::Sender<SpotifyTask>,
 }
 
 const DELAY: Duration = Duration::from_millis(5_000);
 
 impl SpotifyTaskSpawner {
-    pub fn new(config: SpotifyAppConfig) -> SpotifyTaskSpawner {
+    pub fn new(config: SpotifyAppConfig, sender: mpsc::Sender<Command>) -> SpotifyTaskSpawner {
         let config = Arc::new(config);
+        let sender = Arc::new(sender);
         let access_token = Arc::new(Mutex::new(None));
-        let selected_covers = Arc::new(Mutex::new(None));
         let (send, mut recv) = mpsc::channel::<SpotifyTask>(32);
         let last_action = Arc::new(Mutex::new(Instant::now() - DELAY));
 
@@ -52,7 +52,6 @@ impl SpotifyTaskSpawner {
             .unwrap();
 
         let access_token_copy = Arc::clone(&access_token);
-        let selected_covers_copy = Arc::clone(&selected_covers);
         let config_copy = Arc::clone(&config);
         let last_action_copy = Arc::clone(&last_action);
         std::thread::spawn(move || {
@@ -60,11 +59,10 @@ impl SpotifyTaskSpawner {
                 while let Some(task) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let access_token = Arc::clone(&access_token_copy);
-                    let selected_covers = Arc::clone(&selected_covers_copy);
                     let mut last_action = last_action_copy.lock().unwrap();
                     if last_action.elapsed() > DELAY {
-                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&selected_covers), task.clone()));
-                        tokio::spawn(reset_selected_covers(config, access_token, selected_covers));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&sender), task.clone()));
+                        tokio::spawn(reset_selected_covers(config, access_token, Arc::clone(&sender)));
                         *last_action = Instant::now();
                     } else {
                         println!("Ignoring task: {:?}", task);
@@ -76,19 +74,18 @@ impl SpotifyTaskSpawner {
         SpotifyTaskSpawner {
             config,
             access_token,
-            selected_covers,
             spawn: send,
         }
     }
 
-    pub fn login_sync(&self) -> Result<authorization::SpotifyTokenResponse, ()> {
+    pub fn login_sync(config: SpotifyAppConfig) -> Result<authorization::SpotifyTokenResponse, ()> {
         let runtime = Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
             .build()
             .unwrap();
 
-        let config = Arc::clone(&self.config);
+        let config = Arc::new(config);
         return runtime.block_on(runtime.spawn(async move {
             let response = authorization::authorize(&config.authorization).await;
             return match response {
@@ -107,18 +104,9 @@ impl SpotifyTaskSpawner {
             Err(_) => panic!("The shared runtime has shut down."),
         }
     }
-
-    pub fn selected_covers(&self) -> Option<Vec<Image>> {
-        let value = self.selected_covers.lock().unwrap().clone();
-        if value != None {
-            let mut selected_covers = self.selected_covers.lock().unwrap();
-            *selected_covers = None;
-        }
-        return value;
-    }
 }
 
-async fn reset_selected_covers(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, selected_covers: Arc<Mutex<Option<Vec<Image>>>>) {
+async fn reset_selected_covers(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<Command>>) {
     sleep(Duration::from_millis(5_000)).await;
     let playlist_id = &config.playlist_id.clone();
     let _ = with_access_token(config, access_token, |token| async {
@@ -134,13 +122,11 @@ async fn reset_selected_covers(config: Arc<SpotifyAppConfig>, access_token: Arc<
             }
         };
 
-        let mut new_selected_covers = selected_covers.lock().unwrap();
-        *new_selected_covers = Some(images);
-        return Ok(());
+        return sender.send(Command::RenderImages(images)).await.map_err(|_| SpotifyResponseError::Unknown);
     }).await;
 }
 
-async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, selected_covers: Arc<Mutex<Option<Vec<Image>>>>, task: SpotifyTask) {
+async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<Command>>, task: SpotifyTask) {
     let playlist_id = &config.playlist_id.clone();
     let _ = match task {
         SpotifyTask::Play { index } => with_access_token(config, access_token, |token| async {
@@ -149,14 +135,12 @@ async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mu
             match cover_url {
                 Some(url) => {
                     let image = Image::from_url(&url).await;
-                    let mut new_selected_covers = selected_covers.lock().unwrap();
                     match image {
                         Ok(image) => {
-                            *new_selected_covers = Some(vec![image]);
+                            let _ = sender.send(Command::RenderImages(vec![image])).await;
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);
-                            *new_selected_covers = None;
                         },
                     }
                 },
