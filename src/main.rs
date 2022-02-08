@@ -29,7 +29,10 @@ fn main() {
                     })
                     .map_err(|()| String::from("Could not log in"));
             },
-            Config::RunConfig { config } => router::run(&config).map_err(|err| format!("{}", err)),
+            Config::RunConfig { config } => {
+                let router = router::Router::new(config);
+                router.run().map_err(|err| format!("{}", err))
+            }
         }
     });
 
