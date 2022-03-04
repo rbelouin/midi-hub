@@ -5,6 +5,7 @@ use portmidi::{MidiEvent, MidiMessage};
 
 use super::{Error, InputPort, OutputPort};
 
+#[derive(Clone, Debug)]
 pub enum Event {
     Midi([u8; 4]),
     SysEx(Vec<u8>),

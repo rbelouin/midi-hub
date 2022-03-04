@@ -1,6 +1,5 @@
 extern crate signal_hook as sh;
 
-use std::convert::Into;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -10,8 +9,7 @@ use tokio::sync::mpsc;
 
 use crate::spotify;
 use crate::midi;
-use crate::image;
-use midi::{Connections, Error, Event, Reader, Writer, FromImages, IntoIndex};
+use midi::{Connections, Error, Event, Reader, Writer};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
@@ -24,22 +22,18 @@ pub struct RunConfig {
     pub spotify_selector: String,
 }
 
-pub enum Command {
-    RenderImages(Vec<image::Image>),
-}
-
 pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
-    spotify_spawner: spotify::SpotifyTaskSpawner,
-    receiver: mpsc::Receiver<Command>,
+    spotify_spawner: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
+    receiver: mpsc::Receiver<LaunchpadProEvent>,
 }
 
 impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let (sender, receiver) = mpsc::channel::<Command>(32);
+        let (sender, receiver) = mpsc::channel::<LaunchpadProEvent>(32);
         let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
 
         return Router {
@@ -85,25 +79,18 @@ impl Router {
 
                 let spotify_result = match spotify.as_mut() {
                     Ok(spotify) => {
-                        let selected_covers = self.receiver.try_recv();
-                        match selected_covers {
-                            Ok(Command::RenderImages(images)) => {
-                                let _ = LaunchpadProEvent::from_images(images).and_then(|event| {
-                                    return spotify.write(event);
-                                });
+                        let event = self.receiver.try_recv();
+                        match event {
+                            Ok(event) => {
+                                let _ = spotify.write(event);
                             },
                             _ => {},
                         }
 
                         match spotify.read() {
                             Ok(Some(event)) => {
-                                match event.into_index() {
-                                    Ok(Some(index)) => {
-                                        self.spotify_spawner.spawn_task(spotify::SpotifyTask::Play { index: index.into()  });
-                                        Ok(())
-                                    },
-                                    _ => Ok(()),
-                                }
+                                self.spotify_spawner.handle(event);
+                                Ok(())
                             },
                             _ => Ok(()),
                         }

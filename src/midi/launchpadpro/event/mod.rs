@@ -4,6 +4,7 @@ use crate::midi::Event;
 mod image;
 mod index;
 
+#[derive(Clone, Debug)]
 pub struct LaunchpadProEvent {
     event: Event,
 }

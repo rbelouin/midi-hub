@@ -11,17 +11,10 @@ use std::time::{Duration, Instant};
 use reqwest::{StatusCode, header::HeaderMap};
 
 use crate::image::Image;
-use crate::router::Command;
+use crate::midi::{FromImage, FromImages, IntoIndex};
 
 pub mod authorization;
 pub use authorization::SpotifyAuthorizationConfig;
-
-#[derive(Debug, Clone)]
-pub enum SpotifyTask {
-    Play { index: usize },
-    #[allow(dead_code)]
-    Pause,
-}
 
 #[derive(Debug, Clone)]
 pub struct SpotifyAppConfig {
@@ -30,20 +23,27 @@ pub struct SpotifyAppConfig {
 }
 
 #[derive(Clone)]
-pub struct SpotifyTaskSpawner {
+pub struct SpotifyTaskSpawner<E> {
     config: Arc<SpotifyAppConfig>,
     access_token: Arc<Mutex<Option<String>>>,
-    spawn: mpsc::Sender<SpotifyTask>,
+    spawn: mpsc::Sender<E>,
 }
 
 const DELAY: Duration = Duration::from_millis(5_000);
 
-impl SpotifyTaskSpawner {
-    pub fn new(config: SpotifyAppConfig, sender: mpsc::Sender<Command>) -> SpotifyTaskSpawner {
+impl<E: 'static> SpotifyTaskSpawner<E> {
+    pub fn new(config: SpotifyAppConfig, sender: mpsc::Sender<E>) -> SpotifyTaskSpawner<E> where
+        E: FromImage<E>,
+        E: FromImages<E>,
+        E: IntoIndex,
+        E: Clone,
+        E: std::fmt::Debug,
+        E: std::marker::Send,
+    {
         let config = Arc::new(config);
         let sender = Arc::new(sender);
         let access_token = Arc::new(Mutex::new(None));
-        let (send, mut recv) = mpsc::channel::<SpotifyTask>(32);
+        let (send, mut recv) = mpsc::channel::<E>(32);
         let last_action = Arc::new(Mutex::new(Instant::now() - DELAY));
 
         let rt = Builder::new_current_thread()
@@ -56,16 +56,16 @@ impl SpotifyTaskSpawner {
         let last_action_copy = Arc::clone(&last_action);
         std::thread::spawn(move || {
             rt.block_on(async move {
-                while let Some(task) = recv.recv().await {
+                while let Some(event) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let access_token = Arc::clone(&access_token_copy);
                     let mut last_action = last_action_copy.lock().unwrap();
                     if last_action.elapsed() > DELAY {
-                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&sender), task.clone()));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&sender), event.clone()));
                         tokio::spawn(reset_selected_covers(config, access_token, Arc::clone(&sender)));
                         *last_action = Instant::now();
                     } else {
-                        println!("Ignoring task: {:?}", task);
+                        println!("Ignoring event: {:?}", event);
                     }
                 }
             });
@@ -78,35 +78,39 @@ impl SpotifyTaskSpawner {
         }
     }
 
-    pub fn login_sync(config: SpotifyAppConfig) -> Result<authorization::SpotifyTokenResponse, ()> {
-        let runtime = Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let config = Arc::new(config);
-        return runtime.block_on(runtime.spawn(async move {
-            let response = authorization::authorize(&config.authorization).await;
-            return match response {
-                Ok(token) => Ok(token),
-                Err(_) => {
-                    println!("Error!");
-                    Err(())
-                },
-            }
-        })).unwrap();
-    }
-
-    pub fn spawn_task(&self, task: SpotifyTask) {
-        match self.spawn.blocking_send(task) {
+    pub fn handle(&self, event: E) where
+        E: FromImage<E>,
+        E: FromImages<E>,
+        E: IntoIndex
+    {
+        match self.spawn.blocking_send(event) {
             Ok(()) => {},
             Err(_) => panic!("The shared runtime has shut down."),
         }
     }
 }
 
-async fn reset_selected_covers(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<Command>>) {
+pub fn login_sync(config: SpotifyAppConfig) -> Result<authorization::SpotifyTokenResponse, ()> {
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let config = Arc::new(config);
+    return runtime.block_on(runtime.spawn(async move {
+        let response = authorization::authorize(&config.authorization).await;
+        return match response {
+            Ok(token) => Ok(token),
+            Err(_) => {
+                println!("Error!");
+                Err(())
+            },
+        }
+    })).unwrap();
+}
+
+async fn reset_selected_covers<E>(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
     sleep(Duration::from_millis(5_000)).await;
     let playlist_id = &config.playlist_id.clone();
     let _ = with_access_token(config, access_token, |token| async {
@@ -122,22 +126,30 @@ async fn reset_selected_covers(config: Arc<SpotifyAppConfig>, access_token: Arc<
             }
         };
 
-        return sender.send(Command::RenderImages(images)).await.map_err(|_| SpotifyResponseError::Unknown);
+        let event = E::from_images(images).map_err(|_| SpotifyResponseError::Unknown)?;
+        return sender.send(event).await.map_err(|_| SpotifyResponseError::Unknown);
     }).await;
 }
 
-async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<Command>>, task: SpotifyTask) {
+async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<E>>, event_in: E) where
+    E: FromImage<E>,
+    E: IntoIndex
+{
     let playlist_id = &config.playlist_id.clone();
-    let _ = match task {
-        SpotifyTask::Play { index } => with_access_token(config, access_token, |token| async {
-            let track = start_or_resume_index(token, playlist_id, index).await;
+    let _ = match event_in.into_index() {
+        Ok(Some(index)) => with_access_token(config, access_token, |token| async {
+            let track = start_or_resume_index(token, playlist_id, index.into()).await;
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
                 Some(url) => {
-                    let image = Image::from_url(&url).await;
-                    match image {
-                        Ok(image) => {
-                            let _ = sender.send(Command::RenderImages(vec![image])).await;
+                    let image = Image::from_url(&url).await.map_err(|_| ());
+                    let event_out = image.and_then(|image| {
+                        return E::from_image(image).map_err(|_| ());
+                    });
+
+                    match event_out {
+                        Ok(event) => {
+                            let _ = sender.send(event).await;
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);
@@ -148,9 +160,9 @@ async fn handle_spotify_task(config: Arc<SpotifyAppConfig>, access_token: Arc<Mu
             }
             return track.map(|_t| ());
         }).await,
-        SpotifyTask::Pause => with_access_token(config, access_token, |token| async {
-            return pause(token).await;
-        }).await,
+        _ => {
+            return ();
+        },
     };
 }
 
@@ -289,7 +301,7 @@ pub async fn start_or_resume_track(token: String, track_uri: &String) -> Result<
     }
 }
 
-pub async fn pause(token: String) -> Result<(), SpotifyResponseError> {
+pub async fn _pause(token: String) -> Result<(), SpotifyResponseError> {
     let client = reqwest::Client::new();
 
     println!("[Spotify] Pausing the track");
