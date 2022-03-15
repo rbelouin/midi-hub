@@ -73,7 +73,6 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
                     let mut last_action = state.last_action.lock().unwrap();
                     if last_action.elapsed() > DELAY {
                         tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&state), Arc::clone(&sender), event.clone()));
-                        tokio::spawn(reset_selected_covers(config, Arc::clone(&state), Arc::clone(&sender)));
                         *last_action = Instant::now();
                     } else {
                         println!("Ignoring event: {:?}", event);
@@ -121,35 +120,14 @@ pub fn login_sync(config: SpotifyAppConfig) -> Result<authorization::SpotifyToke
     })).unwrap();
 }
 
-async fn reset_selected_covers<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
-    sleep(Duration::from_millis(5_000)).await;
-    let playlist_id = &config.playlist_id.clone();
-    let _ = with_access_token(config, state, |token| async {
-        let tracks = playlist_tracks(token, playlist_id).await.unwrap_or(vec![]);
-        let mut images = Vec::with_capacity(tracks.len());
-        let fallback_image = Image { width: 64, height: 64, bytes: vec![0; 64*64*3] };
-        for n in 0..tracks.len() {
-            let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
-            if image_url.is_some() {
-                images.push(Image::from_url(&image_url.unwrap()).await.unwrap_or(fallback_image.clone()));
-            } else {
-                images.push(fallback_image.clone());
-            }
-        };
-
-        let event = E::from_images(images).map_err(|_| SpotifyResponseError::Unknown)?;
-        return sender.send(event).await.map_err(|_| SpotifyResponseError::Unknown);
-    }).await;
-}
-
 async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<E>>, event_in: E) where
     E: FromImage<E>,
+    E: FromImages<E>,
     E: IntoIndex
 {
-    let playlist_id = &config.playlist_id.clone();
     let _ = match event_in.into_index() {
-        Ok(Some(index)) => with_access_token(config, state, |token| async {
-            let track = start_or_resume_index(token, playlist_id, index.into()).await;
+        Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
+            let track = start_or_resume_index(token, Arc::clone(&state), index.into()).await;
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
                 Some(url) => {
@@ -161,6 +139,9 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
                     match event_out {
                         Ok(event) => {
                             let _ = sender.send(event).await;
+                            sleep(DELAY).await;
+                            pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
+                            render_playlist_tracks(Arc::clone(&state), Arc::clone(&sender)).await;
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);
@@ -193,9 +174,7 @@ async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) 
 }
 
 async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
-    let default_tracks = vec![];
-    let guard = state.tracks.lock().unwrap();
-    let tracks = guard.as_ref().unwrap_or(&default_tracks);
+    let tracks = state.tracks.lock().unwrap().clone().unwrap_or(vec![]);
 
     let mut images = Vec::with_capacity(tracks.len());
     let fallback_image = Image { width: 64, height: 64, bytes: vec![0; 64*64*3] };
@@ -299,12 +278,15 @@ pub struct SpotifyDeviceResponse {
     devices: Vec<SpotifyDevice>,
 }
 
-pub async fn start_or_resume_index(token: String, playlist_id: &String, index: usize) -> Result<SpotifyTrack, SpotifyResponseError> {
-    println!("[Spotify] Playing track {} from playlist {}", index, playlist_id);
-    let tracks = playlist_tracks(token.clone(), playlist_id).await?;
-    return match tracks.get(index) {
-        Some(track) => start_or_resume_track(token, &track.uri).await.map(|()| track.clone()),
-        None      => Err(SpotifyResponseError::Unknown),
+async fn start_or_resume_index(token: String, state: Arc<State>, index: usize) -> Result<SpotifyTrack, SpotifyResponseError> {
+    println!("[Spotify] Playing track {}", index);
+    let track = state.tracks.lock().unwrap().as_ref()
+        .and_then(|tracks| tracks.get(index))
+        .map(|track| track.clone());
+
+    return match track {
+        Some(track) => start_or_resume_track(token, &track.uri).await.map(|()| track),
+        _           => Err(SpotifyResponseError::Unknown),
     }
 }
 
