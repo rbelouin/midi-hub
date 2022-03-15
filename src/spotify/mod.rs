@@ -25,8 +25,13 @@ pub struct SpotifyAppConfig {
 #[derive(Clone)]
 pub struct SpotifyTaskSpawner<E> {
     config: Arc<SpotifyAppConfig>,
-    access_token: Arc<Mutex<Option<String>>>,
+    state: Arc<State>,
     spawn: mpsc::Sender<E>,
+}
+
+struct State {
+    access_token: Mutex<Option<String>>,
+    last_action: Mutex<Instant>,
 }
 
 const DELAY: Duration = Duration::from_millis(5_000);
@@ -42,27 +47,29 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
     {
         let config = Arc::new(config);
         let sender = Arc::new(sender);
-        let access_token = Arc::new(Mutex::new(None));
+        let state = Arc::new(State {
+            access_token: Mutex::new(None),
+            last_action: Mutex::new(Instant::now() - DELAY),
+        });
+
         let (send, mut recv) = mpsc::channel::<E>(32);
-        let last_action = Arc::new(Mutex::new(Instant::now() - DELAY));
 
         let rt = Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
 
-        let access_token_copy = Arc::clone(&access_token);
+        let state_copy = Arc::clone(&state);
         let config_copy = Arc::clone(&config);
-        let last_action_copy = Arc::clone(&last_action);
         std::thread::spawn(move || {
             rt.block_on(async move {
                 while let Some(event) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
-                    let access_token = Arc::clone(&access_token_copy);
-                    let mut last_action = last_action_copy.lock().unwrap();
+                    let state = Arc::clone(&state_copy);
+                    let mut last_action = state.last_action.lock().unwrap();
                     if last_action.elapsed() > DELAY {
-                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&access_token), Arc::clone(&sender), event.clone()));
-                        tokio::spawn(reset_selected_covers(config, access_token, Arc::clone(&sender)));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&state), Arc::clone(&sender), event.clone()));
+                        tokio::spawn(reset_selected_covers(config, Arc::clone(&state), Arc::clone(&sender)));
                         *last_action = Instant::now();
                     } else {
                         println!("Ignoring event: {:?}", event);
@@ -73,7 +80,7 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
 
         SpotifyTaskSpawner {
             config,
-            access_token,
+            state,
             spawn: send,
         }
     }
@@ -110,10 +117,10 @@ pub fn login_sync(config: SpotifyAppConfig) -> Result<authorization::SpotifyToke
     })).unwrap();
 }
 
-async fn reset_selected_covers<E>(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
+async fn reset_selected_covers<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
     sleep(Duration::from_millis(5_000)).await;
     let playlist_id = &config.playlist_id.clone();
-    let _ = with_access_token(config, access_token, |token| async {
+    let _ = with_access_token(config, state, |token| async {
         let tracks = playlist_tracks(token, playlist_id).await.unwrap_or(vec![]);
         let mut images = Vec::with_capacity(tracks.len());
         let fallback_image = Image { width: 64, height: 64, bytes: vec![0; 64*64*3] };
@@ -131,13 +138,13 @@ async fn reset_selected_covers<E>(config: Arc<SpotifyAppConfig>, access_token: A
     }).await;
 }
 
-async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, sender: Arc<mpsc::Sender<E>>, event_in: E) where
+async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<E>>, event_in: E) where
     E: FromImage<E>,
     E: IntoIndex
 {
     let playlist_id = &config.playlist_id.clone();
     let _ = match event_in.into_index() {
-        Ok(Some(index)) => with_access_token(config, access_token, |token| async {
+        Ok(Some(index)) => with_access_token(config, state, |token| async {
             let track = start_or_resume_index(token, playlist_id, index.into()).await;
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
@@ -172,18 +179,18 @@ pub enum SpotifyResponseError {
     Unknown,
 }
 
-async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>, f: F) -> Result<A, ()> where
+async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, state: Arc<State>, f: F) -> Result<A, ()> where
     F: Fn(String) -> Fut,
     Fut: Future<Output = Result<A, SpotifyResponseError>>,
 {
-    let token = access_token.lock().unwrap().clone();
+    let token = state.access_token.lock().unwrap().clone();
     return match token {
         Some(token) => {
             println!("[Spotify] Found token in memory");
             match f(token.to_string()).await {
                 Err(SpotifyResponseError::NotAuthorized) => {
                     println!("[Spotify] Retrying because of expired token");
-                    let token = fetch_and_store_access_token(config, access_token).await?;
+                    let token = fetch_and_store_access_token(config, state).await?;
                     return f(token).await.map_err(|_err| ());
                 },
                 Err(_) => Err(()),
@@ -192,15 +199,15 @@ async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, access_toke
         },
         None => {
             println!("[Spotify] No token in memory");
-            let token = fetch_and_store_access_token(config, access_token).await?;
+            let token = fetch_and_store_access_token(config, state).await?;
             return f(token).await.map_err(|_err| ());
         },
     };
 }
 
-async fn fetch_and_store_access_token(config: Arc<SpotifyAppConfig>, access_token: Arc<Mutex<Option<String>>>) ->  Result<String, ()> {
+async fn fetch_and_store_access_token(config: Arc<SpotifyAppConfig>, state: Arc<State>) ->  Result<String, ()> {
     let token_response =  authorization::refresh_token(&config.authorization).await.unwrap();
-    let mut new_token = access_token.lock().unwrap();
+    let mut new_token = state.access_token.lock().unwrap();
     *new_token = Some(token_response.access_token.clone());
     return Ok(token_response.access_token.clone());
 }
