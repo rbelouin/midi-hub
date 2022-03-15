@@ -32,6 +32,7 @@ pub struct SpotifyTaskSpawner<E> {
 struct State {
     access_token: Mutex<Option<String>>,
     last_action: Mutex<Instant>,
+    tracks: Mutex<Option<Vec<SpotifyTrack>>>,
 }
 
 const DELAY: Duration = Duration::from_millis(5_000);
@@ -50,6 +51,7 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
         let state = Arc::new(State {
             access_token: Mutex::new(None),
             last_action: Mutex::new(Instant::now() - DELAY),
+            tracks: Mutex::new(None),
         });
 
         let (send, mut recv) = mpsc::channel::<E>(32);
@@ -63,6 +65,8 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
         let config_copy = Arc::clone(&config);
         std::thread::spawn(move || {
             rt.block_on(async move {
+                pull_playlist_tracks(Arc::clone(&config_copy), Arc::clone(&state_copy)).await;
+                render_playlist_tracks(Arc::clone(&state_copy), Arc::clone(&sender)).await;
                 while let Some(event) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let state = Arc::clone(&state_copy);
@@ -171,6 +175,46 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
             return ();
         },
     };
+}
+
+async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) {
+    let playlist_id = config.playlist_id.clone();
+    let tracks = with_access_token(config, Arc::clone(&state), |token| async {
+        return playlist_tracks(token, &playlist_id).await;
+    }).await;
+
+    match tracks {
+        Err(_) => println!("[Spotify] could not pull tracks from playlist {}", playlist_id),
+        Ok(tracks) => {
+            let mut state_tracks = state.tracks.lock().unwrap();
+            *state_tracks = Some(tracks);
+        },
+    }
+}
+
+async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
+    let default_tracks = vec![];
+    let guard = state.tracks.lock().unwrap();
+    let tracks = guard.as_ref().unwrap_or(&default_tracks);
+
+    let mut images = Vec::with_capacity(tracks.len());
+    let fallback_image = Image { width: 64, height: 64, bytes: vec![0; 64*64*3] };
+
+    for n in 0..tracks.len() {
+        let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
+        if image_url.is_some() {
+            images.push(Image::from_url(&image_url.unwrap()).await.unwrap_or(fallback_image.clone()));
+        } else {
+            images.push(fallback_image.clone());
+        }
+    };
+
+    match E::from_images(images) {
+        Err(_) => println!("[Spotify] could not render the playlist tracks"),
+        Ok(event) => {
+            let _ = sender.send(event).await;
+        },
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
