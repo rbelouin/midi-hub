@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use reqwest::{StatusCode, header::HeaderMap};
 
 use crate::image::Image;
-use crate::midi::{FromImage, FromImages, IntoIndex};
+use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
 
 pub mod authorization;
 pub use authorization::SpotifyAuthorizationConfig;
@@ -41,6 +41,7 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
     pub fn new(config: SpotifyAppConfig, sender: mpsc::Sender<E>) -> SpotifyTaskSpawner<E> where
         E: FromImage<E>,
         E: FromImages<E>,
+        E: FromSelectedIndex<E>,
         E: IntoIndex,
         E: Clone,
         E: std::fmt::Debug,
@@ -123,6 +124,7 @@ pub fn login_sync(config: SpotifyAppConfig) -> Result<authorization::SpotifyToke
 async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<E>>, event_in: E) where
     E: FromImage<E>,
     E: FromImages<E>,
+    E: FromSelectedIndex<E>,
     E: IntoIndex
 {
     let _ = match event_in.into_index() {
@@ -142,6 +144,15 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
                             sleep(DELAY).await;
                             pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
                             render_playlist_tracks(Arc::clone(&state), Arc::clone(&sender)).await;
+
+                            match E::from_selected_index(index) {
+                                Ok(event) => {
+                                    let _ = sender.send(event).await;
+                                },
+                                Err(e) => {
+                                    println!("Could not select index: {} ({})", index, e);
+                                },
+                            };
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);

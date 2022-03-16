@@ -1,4 +1,4 @@
-use crate::midi::{Event, Error, IntoIndex};
+use crate::midi::{Event, Error, IntoIndex, FromSelectedIndex};
 use super::LaunchpadProEvent;
 
 impl IntoIndex for LaunchpadProEvent {
@@ -19,6 +19,22 @@ impl IntoIndex for LaunchpadProEvent {
             },
             _ => None,
         });
+    }
+}
+
+impl FromSelectedIndex<LaunchpadProEvent> for LaunchpadProEvent {
+    fn from_selected_index(index: u16) -> Result<LaunchpadProEvent, Error> {
+        if index > 63 {
+            return Err(Error::OutOfBoundIndexError);
+        }
+
+        let index = index as u8;
+        let row = index / 8 + 1;
+        let column = index % 8 + 1;
+        let led = row * 10 + column;
+
+        let bytes = vec![240, 0, 32, 41, 2, 16, 40, led, 3, 247];
+        return Ok(LaunchpadProEvent::from(Event::SysEx(bytes)));
     }
 }
 

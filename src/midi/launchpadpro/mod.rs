@@ -8,10 +8,10 @@ pub use event::LaunchpadProEvent;
 mod test {
     #[test]
     #[cfg(feature = "launchpadpro")]
-    fn render_rainbow() {
+    fn render_rainbow_and_blink() {
         use std::convert::From;
         use crate::image::Image;
-        use crate::midi::{Connections, FromImage, Writer};
+        use crate::midi::{Connections, FromImage, FromSelectedIndex, Writer};
         use super::*;
 
         let connections = Connections::new().unwrap();
@@ -41,6 +41,12 @@ mod test {
                 });
 
                 assert!(result.is_ok(), "The LaunchpadPro could not render the given image");
+
+                let result = LaunchpadProEvent::from_selected_index(27).and_then(|event| {
+                    return launchpadpro.write(event);
+                });
+
+                assert!(result.is_ok(), "The LaunchpadPro could not make the square pad blink");
             },
             Err(_) => {
                 println!("The LaunchpadPro device may not be connected correctly");
