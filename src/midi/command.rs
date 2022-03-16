@@ -29,3 +29,8 @@ pub trait FromImage<T> {
 pub trait FromImages<T> {
     fn from_images(images: Vec<Image>) -> Result<T, Error>;
 }
+
+/// MIDI Device that is able to highlight a note/square pad at a specific index
+pub trait FromSelectedIndex<T> {
+    fn from_selected_index(index: u16) -> Result<T, Error>;
+}
