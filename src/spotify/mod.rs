@@ -33,6 +33,7 @@ struct State {
     access_token: Mutex<Option<String>>,
     last_action: Mutex<Instant>,
     tracks: Mutex<Option<Vec<SpotifyTrack>>>,
+    playing: Mutex<Option<u16>>,
 }
 
 const DELAY: Duration = Duration::from_millis(5_000);
@@ -53,6 +54,7 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
             access_token: Mutex::new(None),
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),
+            playing: Mutex::new(None),
         });
 
         let (send, mut recv) = mpsc::channel::<E>(32);
@@ -129,7 +131,28 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
 {
     let _ = match event_in.into_index() {
         Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
+            let s = Arc::clone(&state);
+            let playing = *s.playing.lock().unwrap();
+            if playing == Some(index) {
+                let res = pause(token).await;
+                if res.is_ok() {
+                    {
+                        let s = Arc::clone(&state);
+                        let mut playing = s.playing.lock().unwrap();
+                        *playing = None;
+                    }
+                    render_playlist_tracks(Arc::clone(&state), Arc::clone(&sender)).await;
+                }
+                return res;
+            }
+
             let track = start_or_resume_index(token, Arc::clone(&state), index.into()).await;
+            if track.is_ok() {
+                let s = Arc::clone(&state);
+                let mut playing = s.playing.lock().unwrap();
+                *playing = Some(index);
+            }
+
             let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
             match cover_url {
                 Some(url) => {
@@ -144,15 +167,6 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
                             sleep(DELAY).await;
                             pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
                             render_playlist_tracks(Arc::clone(&state), Arc::clone(&sender)).await;
-
-                            match E::from_selected_index(index) {
-                                Ok(event) => {
-                                    let _ = sender.send(event).await;
-                                },
-                                Err(e) => {
-                                    println!("Could not select index: {} ({})", index, e);
-                                },
-                            };
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);
@@ -184,7 +198,10 @@ async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) 
     }
 }
 
-async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where E: FromImages<E> {
+async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where
+    E: FromImages<E>,
+    E: FromSelectedIndex<E>,
+{
     let tracks = state.tracks.lock().unwrap().clone().unwrap_or(vec![]);
 
     let mut images = Vec::with_capacity(tracks.len());
@@ -205,6 +222,19 @@ async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E
             let _ = sender.send(event).await;
         },
     }
+
+    let playing = state.playing.lock().unwrap().clone();
+    match playing {
+        Some(index) => match E::from_selected_index(index) {
+            Ok(event) => {
+                let _ = sender.send(event).await;
+            },
+            Err(e) => {
+                println!("Could not select index: {} ({})", index, e);
+            },
+        },
+        None => {},
+    };
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -345,12 +375,14 @@ pub async fn start_or_resume_track(token: String, track_uri: &String) -> Result<
     }
 }
 
-pub async fn _pause(token: String) -> Result<(), SpotifyResponseError> {
+pub async fn pause(token: String) -> Result<(), SpotifyResponseError> {
     let client = reqwest::Client::new();
+    let device = get_active_device(&token).await?;
 
-    println!("[Spotify] Pausing the track");
-    let response = client.put(format!("https://api.spotify.com/v1/me/player/pause"))
+    println!("[Spotify] Pausing the track on device {}", device.id);
+    let response = client.put(format!("https://api.spotify.com/v1/me/player/pause?device_id={}", device.id))
         .headers(headers(&token))
+        .json(&json!({}))
         .send()
         .await
         .map_err(|_err| SpotifyResponseError::Unknown)?;
