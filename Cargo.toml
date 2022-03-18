@@ -27,3 +27,4 @@ insta = "^1.10"
 [features]
 launchpadpro = []
 planckez = []
+spotify = []
