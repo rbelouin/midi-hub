@@ -1,6 +1,3 @@
-use serde::Deserialize;
-use serde_json::json;
-
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -8,13 +5,15 @@ use tokio::time::sleep;
 use std::{future::Future, sync::{Arc, Mutex}};
 use std::time::{Duration, Instant};
 
-use reqwest::{StatusCode, header::HeaderMap};
-
 use crate::image::Image;
 use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
 
 pub mod authorization;
 pub use authorization::SpotifyAuthorizationConfig;
+
+pub mod client;
+use client::SpotifyError;
+use client::tracks::SpotifyTrack;
 
 #[derive(Debug, Clone)]
 pub struct SpotifyAppConfig {
@@ -134,7 +133,7 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
             let s = Arc::clone(&state);
             let playing = *s.playing.lock().unwrap();
             if playing == Some(index) {
-                let res = pause(token).await;
+                let res = client::player::pause(token).await;
                 if res.is_ok() {
                     {
                         let s = Arc::clone(&state);
@@ -184,13 +183,12 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
 }
 
 async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) {
-    let playlist_id = config.playlist_id.clone();
-    let tracks = with_access_token(config, Arc::clone(&state), |token| async {
-        return playlist_tracks(token, &playlist_id).await;
+    let tracks = with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
+        return client::playlists::get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await;
     }).await;
 
     match tracks {
-        Err(_) => println!("[Spotify] could not pull tracks from playlist {}", playlist_id),
+        Err(_) => println!("[Spotify] could not pull tracks from playlist {}", config.playlist_id),
         Ok(tracks) => {
             let mut state_tracks = state.tracks.lock().unwrap();
             *state_tracks = Some(tracks);
@@ -237,22 +235,16 @@ async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E
     };
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum SpotifyResponseError {
-    NotAuthorized,
-    Unknown,
-}
-
 async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, state: Arc<State>, f: F) -> Result<A, ()> where
     F: Fn(String) -> Fut,
-    Fut: Future<Output = Result<A, SpotifyResponseError>>,
+    Fut: Future<Output = Result<A, SpotifyError>>,
 {
     let token = state.access_token.lock().unwrap().clone();
     return match token {
         Some(token) => {
             println!("[Spotify] Found token in memory");
             match f(token.to_string()).await {
-                Err(SpotifyResponseError::NotAuthorized) => {
+                Err(SpotifyError::Unauthorized) => {
                     println!("[Spotify] Retrying because of expired token");
                     let token = fetch_and_store_access_token(config, state).await?;
                     return f(token).await.map_err(|_err| ());
@@ -275,157 +267,14 @@ async fn fetch_and_store_access_token(config: Arc<SpotifyAppConfig>, state: Arc<
     *new_token = Some(token_response.access_token.clone());
     return Ok(token_response.access_token.clone());
 }
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct SpotifyAlbumImage {
-    width: u16,
-    height: u16,
-    url: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct SpotifyAlbum {
-    images: Vec<SpotifyAlbumImage>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct SpotifyTrack {
-    id: String,
-    name: String,
-    uri: String,
-    album: SpotifyAlbum,
-}
-
-#[derive(Deserialize, Debug)]
-pub  struct SpotifyPlaylistItem {
-    track: SpotifyTrack,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct SpotifyPlaylistResponse {
-    href: String,
-    items: Vec<SpotifyPlaylistItem>
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct SpotifyDevice {
-    id: String,
-    is_active: bool,
-    name: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct SpotifyDeviceResponse {
-    devices: Vec<SpotifyDevice>,
-}
-
-async fn start_or_resume_index(token: String, state: Arc<State>, index: usize) -> Result<SpotifyTrack, SpotifyResponseError> {
+async fn start_or_resume_index(token: String, state: Arc<State>, index: usize) -> Result<SpotifyTrack, SpotifyError> {
     println!("[Spotify] Playing track {}", index);
     let track = state.tracks.lock().unwrap().as_ref()
         .and_then(|tracks| tracks.get(index))
         .map(|track| track.clone());
 
     return match track {
-        Some(track) => start_or_resume_track(token, &track.uri).await.map(|()| track),
-        _           => Err(SpotifyResponseError::Unknown),
+        Some(track) => client::player::play(token, track.uri.clone()).await.map(|()| track),
+        _           => Err(SpotifyError::Unknown),
     }
-}
-
-pub async fn playlist_tracks(token: String, playlist_id: &String) -> Result<Vec<SpotifyTrack>, SpotifyResponseError> {
-    let client = reqwest::Client::new();
-
-    println!("[Spotify] Get tracks from playlist {}", playlist_id);
-    let response = client.get(format!("https://api.spotify.com/v1/playlists/{}/tracks", playlist_id))
-        .headers(headers(&token))
-        .send()
-        .await
-        .map_err(|_err| SpotifyResponseError::Unknown)?;
-
-    if response.status() == StatusCode::UNAUTHORIZED {
-        return Err(SpotifyResponseError::NotAuthorized);
-    } else {
-        let response = response
-            .json::<SpotifyPlaylistResponse>()
-            .await
-            .map_err(|_err| SpotifyResponseError::Unknown)?;
-
-        return Ok(response.items.iter().map(|item| item.track.clone()).collect());
-    }
-}
-
-pub async fn start_or_resume_track(token: String, track_uri: &String) -> Result<(), SpotifyResponseError> {
-    let client = reqwest::Client::new();
-
-    let device = get_active_device(&token).await?;
-
-    println!("[Spotify] Playing track {} on device {}", track_uri, device.id);
-    let response = client.put(format!("https://api.spotify.com/v1/me/player/play?device_id={}", device.id))
-        .headers(headers(&token))
-        .json(&json!({
-            "uris": vec![&track_uri]
-        }))
-        .send()
-        .await
-        .map_err(|_err| SpotifyResponseError::Unknown)?;
-
-    if response.status() == StatusCode::UNAUTHORIZED {
-        return Err(SpotifyResponseError::NotAuthorized);
-    } else {
-        return Ok(());
-    }
-}
-
-pub async fn pause(token: String) -> Result<(), SpotifyResponseError> {
-    let client = reqwest::Client::new();
-    let device = get_active_device(&token).await?;
-
-    println!("[Spotify] Pausing the track on device {}", device.id);
-    let response = client.put(format!("https://api.spotify.com/v1/me/player/pause?device_id={}", device.id))
-        .headers(headers(&token))
-        .json(&json!({}))
-        .send()
-        .await
-        .map_err(|_err| SpotifyResponseError::Unknown)?;
-
-    if response.status() == StatusCode::UNAUTHORIZED {
-        return Err(SpotifyResponseError::NotAuthorized);
-    } else {
-        return Ok(());
-    }
-}
-
-pub async fn get_devices(token: &String) -> Result<SpotifyDeviceResponse, SpotifyResponseError> {
-    let client = reqwest::Client::new();
-
-    println!("[Spotify] Get devices");
-    let response = client.get(format!("https://api.spotify.com/v1/me/player/devices"))
-        .headers(headers(token))
-        .send()
-        .await
-        .map_err(|_err| SpotifyResponseError::Unknown)?;
-
-    println!("Status: {}", response.status());
-    if response.status() == StatusCode::UNAUTHORIZED {
-        return Err(SpotifyResponseError::NotAuthorized);
-    } else {
-        let response = response
-            .json::<SpotifyDeviceResponse>()
-            .await
-            .map_err(|_err| SpotifyResponseError::Unknown)?;
-
-        return Ok(response);
-    }
-}
-
-pub async fn get_active_device(token: &String) -> Result<SpotifyDevice, SpotifyResponseError> {
-    let response = get_devices(token).await?;
-    let first_device = response.devices.get(0).map(|d| d.clone());
-    let active_device = response.devices.into_iter().find(|device| device.is_active);
-    return active_device.or(first_device).ok_or(SpotifyResponseError::Unknown);
-}
-
-fn headers(token: &String) -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert("Authorization", format!("Bearer {}", token).parse().unwrap());
-    return headers;
 }
