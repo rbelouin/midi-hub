@@ -8,3 +8,9 @@ pub mod server;
 pub enum Command {
     Play(String),
 }
+
+#[derive(Debug)]
+pub enum Out<E> where E: std::fmt::Debug {
+    Command(Command),
+    Event(E),
+}

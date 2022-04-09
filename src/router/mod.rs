@@ -34,7 +34,7 @@ pub struct Router {
     receiver: mpsc::Receiver<LaunchpadProEvent>,
     youtube_server: HttpServer,
     youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
-    youtube_receiver: mpsc::Receiver<youtube::Command>,
+    youtube_receiver: mpsc::Receiver<youtube::Out<LaunchpadProEvent>>,
 }
 
 impl Router {
@@ -44,7 +44,7 @@ impl Router {
         let (sender, receiver) = mpsc::channel::<LaunchpadProEvent>(32);
         let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
         let youtube_server = HttpServer::start();
-        let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Command>(32);
+        let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Out<LaunchpadProEvent>>(32);
         let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
 
         return Router {
@@ -118,8 +118,11 @@ impl Router {
                     Ok(youtube_ports) => {
                         let command = self.youtube_receiver.try_recv();
                         match command {
-                            Ok(command) => {
+                            Ok(youtube::Out::Command(command)) => {
                                 let _ = self.youtube_server.send(command);
+                            },
+                            Ok(youtube::Out::Event(event)) => {
+                                let _ = youtube_ports.write(event);
                             },
                             _ => {},
                         }
