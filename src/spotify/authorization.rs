@@ -1,16 +1,19 @@
-extern crate tiny_http;
 extern crate url;
 extern crate querystring;
 extern crate serde;
 extern crate open;
+extern crate warp;
+extern crate tokio;
 
+use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 
 use base64::encode;
 use reqwest::header::HeaderMap;
-use tiny_http::{Server, Response};
-use url::Url;
 use serde::Deserialize;
+use warp::Filter;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 #[derive(Clone, Debug)]
 pub struct SpotifyAuthorizationConfig {
@@ -49,28 +52,33 @@ pub async fn spawn_authorization_browser(config: &SpotifyAuthorizationConfig) ->
 
 pub async fn spawn_authorization_server(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     println!("Spawning a server!");
-    let server = Server::http("0.0.0.0:12345").unwrap();
-    let base_url = Url::parse("http://localhost:12345")?;
+    let (tx, mut rx) = mpsc::channel::<String>(1usize);
+    let (send, recv) = oneshot::channel::<String>();
+    let routes = warp::any()
+        .and(warp::query::<HashMap<String, String>>())
+        .map(move |query: HashMap<String, String>| {
+            let code = query.get("code");
+            match code {
+                Some(code) => {
+                    let _ = tx.try_send(code.to_string());
+                    return "You can now close this tab.";
+                },
+                _ => {
+                    let _ = tx.try_send("".to_string());
+                    return "An error occurred (see the logs), you may need to go through the authorization flow again.";
+                },
+            }
+        });
 
-    for request in server.incoming_requests().take(1) {
-        let url = base_url.join(request.url()).unwrap();
-        let params = url.query().map(querystring::querify);
-        let code = params.unwrap_or(vec![]).iter().find(|(key, _value)| key.clone() == "code").map(|(_key, value)| value.clone());
-        match code {
-            Some(code) => {
-                let response = Response::from_string("You can now close this tab.");
-                request.respond(response)?;
-                return request_token(config, &String::from(code)).await;
-            },
-            _ => {
-                let response = Response::from_string("An error occurred (see the logs), you may need to go through the authorization flow again.");
-                request.respond(response)?;
-                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Code not found in the token response")));
-            },
-        }
-    }
+    let (_addr, server) = warp::serve(routes)
+        .bind_with_graceful_shutdown(([0, 0, 0, 0], 12345), async move {
+            let code = rx.recv().await.unwrap_or("".to_string());
+            send.send(code).ok();
+        });
 
-    return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Interrupted, "Server shut down before receiving a request")));
+    server.await;
+    let code = recv.await.map_err(|err| Box::new(err))?;
+    return request_token(config, &code).await;
 }
 
 pub async fn request_token(config: &SpotifyAuthorizationConfig, code: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
