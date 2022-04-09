@@ -63,7 +63,7 @@ fn args() -> Result<Config, String> {
         },
         Some("run") => {
             return match &args[2..] {
-                [client_id, client_secret, input_name, output_name, spotify_selector, playlist_id, token] => Ok(Config::RunConfig {
+                [client_id, client_secret, input_name, output_name, spotify_selector, playlist_id, token, youtube_device] => Ok(Config::RunConfig {
                     config: router::RunConfig {
                         spotify_app_config: spotify::SpotifyAppConfig {
                             authorization: spotify::authorization::SpotifyAuthorizationConfig {
@@ -76,9 +76,10 @@ fn args() -> Result<Config, String> {
                         input_name: String::from(input_name),
                         output_name: String::from(output_name),
                         spotify_selector: String::from(spotify_selector),
+                        youtube_device: String::from(youtube_device),
                     },
                 }),
-                _ => Err(String::from("Usage: ./midi-hub run <client-id> <client-secret> <input-name> <output-name> <spotify-selector> <playlist-id> <spotify-token>")),
+                _ => Err(String::from("Usage: ./midi-hub run <client-id> <client-secret> <input-name> <output-name> <spotify-selector> <playlist-id> <spotify-token> <youtube-device>")),
             };
         },
         _ => Err(String::from("Usage ./midi-hub [login|run] <args>")),
