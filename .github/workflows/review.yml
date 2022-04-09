@@ -11,5 +11,7 @@ jobs:
         with:
           toolchain: stable
       - uses: actions-rs/cargo@v1
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         with:
           command: test
