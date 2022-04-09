@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 
 use crate::spotify;
 use crate::midi;
+use crate::youtube;
 use midi::{Connections, Error, Event, Reader, Writer};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::youtube::server::HttpServer;
@@ -93,6 +94,9 @@ impl Router {
 
                         match spotify.read() {
                             Ok(Some(event)) => {
+                                self.youtube_server.send(
+                                    youtube::server::Command::Play("w2sF0Gn4UcQ".to_string())
+                                );
                                 self.spotify_spawner.handle(event);
                                 Ok(())
                             },

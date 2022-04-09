@@ -1,7 +1,6 @@
 extern crate futures_util;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures_util::SinkExt;
 use serde::{Serialize, Deserialize};
@@ -17,13 +16,16 @@ pub enum Command {
     Play(String),
 }
 
-pub struct HttpServer {}
+pub struct HttpServer {
+    sender: Arc<RwLock<Sender<Command>>>,
+}
 
 impl HttpServer {
     pub fn start() -> Self {
         let (tx, _) = mpsc::channel::<Command>(1usize);
         let sender = Arc::new(RwLock::new(tx));
 
+        let thread_sender = Arc::clone(&sender);
         std::thread::spawn(move || {
             Builder::new_multi_thread()
                 .enable_all()
@@ -33,7 +35,7 @@ impl HttpServer {
                     let public = warp::any()
                         .and(warp::fs::dir("public"));
 
-                    let websocket_sender = Arc::clone(&sender);
+                    let websocket_sender = Arc::clone(&thread_sender);
                     let websocket = warp::path("ws")
                         .and(warp::ws())
                         .map(move |ws: Ws| {
@@ -51,7 +53,14 @@ impl HttpServer {
                 });
         });
 
-        HttpServer {}
+        HttpServer {
+            sender,
+        }
+    }
+
+    pub fn send(&self, command: Command) {
+        self.sender.try_read().expect("sender should be readable").blocking_send(command)
+            .unwrap_or_else(|err| eprintln!("Error: {:?}", err));
     }
 }
 
@@ -68,7 +77,4 @@ async fn handle_connection(ws: WebSocket, sender: Arc<RwLock<Sender<Command>>>) 
             let _ = ws.send(Message::text(serde_json::to_string(&command).unwrap_or("Error when serializing command".to_string()))).await;
         }
     });
-
-    tokio::time::sleep(Duration::from_millis(10_000)).await;
-    let _ = sender.send(Command::Play("w2sF0Gn4UcQ".to_string())).await;
 }
