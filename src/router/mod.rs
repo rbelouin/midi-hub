@@ -23,6 +23,8 @@ pub struct RunConfig {
     pub output_name: String,
     pub spotify_selector: String,
     pub youtube_device: String,
+    pub youtube_api_key: String,
+    pub youtube_playlist_id: String,
 }
 
 pub struct Router {
@@ -43,7 +45,7 @@ impl Router {
         let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
         let youtube_server = HttpServer::start();
         let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Command>(32);
-        let youtube_app = youtube::app::Youtube::new(yt_sender);
+        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
 
         return Router {
             config,
