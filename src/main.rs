@@ -7,6 +7,7 @@ mod spotify;
 mod image;
 mod midi;
 mod router;
+mod youtube;
 
 enum Config {
     LoginConfig {

@@ -11,6 +11,7 @@ use crate::spotify;
 use crate::midi;
 use midi::{Connections, Error, Event, Reader, Writer};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
+use crate::youtube::server::HttpServer;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -27,6 +28,7 @@ pub struct Router {
     term: Arc<AtomicBool>,
     spotify_spawner: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
     receiver: mpsc::Receiver<LaunchpadProEvent>,
+    youtube_server: HttpServer,
 }
 
 impl Router {
@@ -35,12 +37,14 @@ impl Router {
 
         let (sender, receiver) = mpsc::channel::<LaunchpadProEvent>(32);
         let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
+        let youtube_server = HttpServer::start();
 
         return Router {
             config,
             term,
             spotify_spawner,
             receiver,
+            youtube_server,
         };
     }
 
