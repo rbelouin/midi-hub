@@ -28,7 +28,15 @@ function onYouTubeIframeAPIReady() {
 
   document.body.addEventListener("click", () => {
     document.body.requestFullscreen();
-    setTimeout(() => playVideo('Dy-WpCFz1j4'), 1000);
-    setTimeout(() => playVideo('w2sF0Gn4UcQ'), 9000);
+  });
+
+  const ws = new WebSocket("ws://localhost:54321/ws");
+  ws.addEventListener("message", message => {
+    const command = JSON.parse(message.data);
+    if (command.Play) {
+      playVideo(command.Play);
+    } else {
+      console.error('Unsupported command', command);
+    }
   });
 }
