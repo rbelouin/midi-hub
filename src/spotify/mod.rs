@@ -68,7 +68,7 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
         std::thread::spawn(move || {
             rt.block_on(async move {
                 pull_playlist_tracks(Arc::clone(&config_copy), Arc::clone(&state_copy)).await;
-                render_playlist_tracks(Arc::clone(&state_copy), Arc::clone(&sender)).await;
+                render_spotify_logo(Arc::clone(&state_copy), Arc::clone(&sender)).await;
                 while let Some(event) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let state = Arc::clone(&state_copy);
@@ -140,7 +140,7 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
                         let mut playing = s.playing.lock().unwrap();
                         *playing = None;
                     }
-                    render_playlist_tracks(Arc::clone(&state), Arc::clone(&sender)).await;
+                    render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                 }
                 return res;
             }
@@ -165,7 +165,7 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
                             let _ = sender.send(event).await;
                             sleep(DELAY).await;
                             pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-                            render_playlist_tracks(Arc::clone(&state), Arc::clone(&sender)).await;
+                            render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);
@@ -196,26 +196,12 @@ async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) 
     }
 }
 
-async fn render_playlist_tracks<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where
-    E: FromImages<E>,
+async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<E>>) where
+    E: FromImage<E>,
     E: FromSelectedIndex<E>,
 {
-    let tracks = state.tracks.lock().unwrap().clone().unwrap_or(vec![]);
-
-    let mut images = Vec::with_capacity(tracks.len());
-    let fallback_image = Image { width: 64, height: 64, bytes: vec![0; 64*64*3] };
-
-    for n in 0..tracks.len() {
-        let image_url = tracks[n].album.images.last().map(|image| image.url.clone());
-        if image_url.is_some() {
-            images.push(Image::from_url(&image_url.unwrap()).await.unwrap_or(fallback_image.clone()));
-        } else {
-            images.push(fallback_image.clone());
-        }
-    };
-
-    match E::from_images(images) {
-        Err(_) => println!("[Spotify] could not render the playlist tracks"),
+    match E::from_image(get_spotify_logo()) {
+        Err(_) => println!("[Spotify] could not render the spotify logo"),
         Ok(event) => {
             let _ = sender.send(event).await;
         },
@@ -277,4 +263,26 @@ async fn start_or_resume_index(token: String, state: Arc<State>, index: usize) -
         Some(track) => client::player::play(token, track.uri.clone()).await.map(|()| track),
         _           => Err(SpotifyError::Unknown),
     }
+}
+
+pub const COLOR: [u8; 3] = [0, 255, 0];
+
+pub fn get_spotify_logo() -> Image {
+    let g = [0, 255, 0];
+    let w = [255, 255, 255];
+
+    return Image {
+        width: 8,
+        height: 8,
+        bytes: vec![
+            g, g, g, g, g, g, g, g,
+            g, g, w, w, w, w, g, g,
+            g, w, g, g, g, g, w, g,
+            g, g, w, w, w, w, g, g,
+            g, w, g, g, g, g, w, g,
+            g, g, w, w, w, w, g, g,
+            g, w, g, g, g, g, w, g,
+            g, g, g, g, g, g, g, g,
+        ].concat(),
+    };
 }

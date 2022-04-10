@@ -10,19 +10,23 @@ use tokio::sync::mpsc;
 use crate::spotify;
 use crate::midi;
 use crate::youtube;
-use midi::{Connections, Error, Event, Reader, Writer};
+use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::youtube::server::HttpServer;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+enum AppName {
+    Spotify,
+    Youtube,
+}
+
 pub struct RunConfig {
     pub spotify_app_config: spotify::SpotifyAppConfig,
     pub input_name: String,
     pub output_name: String,
-    pub spotify_selector: String,
-    pub youtube_device: String,
+    pub launchpad_name: String,
     pub youtube_api_key: String,
     pub youtube_playlist_id: String,
 }
@@ -30,19 +34,20 @@ pub struct RunConfig {
 pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
-    spotify_spawner: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
-    receiver: mpsc::Receiver<LaunchpadProEvent>,
+    spotify_app: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
+    spotify_receiver: mpsc::Receiver<LaunchpadProEvent>,
     youtube_server: HttpServer,
     youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
     youtube_receiver: mpsc::Receiver<youtube::Out<LaunchpadProEvent>>,
+    selected_app: AppName,
 }
 
 impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let (sender, receiver) = mpsc::channel::<LaunchpadProEvent>(32);
-        let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
+        let (sp_sender, sp_receiver) = mpsc::channel::<LaunchpadProEvent>(32);
+        let spotify_app = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sp_sender);
         let youtube_server = HttpServer::start();
         let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Out<LaunchpadProEvent>>(32);
         let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
@@ -50,11 +55,12 @@ impl Router {
         return Router {
             config,
             term,
-            spotify_spawner,
-            receiver,
+            spotify_app,
+            spotify_receiver: sp_receiver,
             youtube_server,
             youtube_app,
             youtube_receiver: yt_receiver,
+            selected_app: AppName::Spotify,
         };
     }
 
@@ -73,9 +79,7 @@ impl Router {
         return Connections::new().and_then(|connections| {
             let mut input = connections.create_input_port(&self.config.input_name);
             let mut output = connections.create_output_port(&self.config.output_name);
-            let mut spotify = connections.create_bidirectional_ports(&self.config.spotify_selector)
-                .map(|ports| LaunchpadPro::from(ports));
-            let mut youtube_ports = connections.create_bidirectional_ports(&self.config.youtube_device)
+            let mut launchpad = connections.create_bidirectional_ports(&self.config.launchpad_name)
                 .map(|ports| LaunchpadPro::from(ports));
 
             let mut result = Ok(());
@@ -93,19 +97,59 @@ impl Router {
                     (_, Err(e)) => Err(*e),
                 };
 
-                let spotify_result = match spotify.as_mut() {
-                    Ok(spotify) => {
-                        let event = self.receiver.try_recv();
-                        match event {
-                            Ok(event) => {
-                                let _ = spotify.write(event);
+                let launchpad_result = match launchpad.as_mut() {
+                    Ok(launchpad) => {
+                        let _ = LaunchpadProEvent::from_app_colors(vec![
+                            spotify::COLOR,
+                            youtube::app::COLOR,
+                        ]).and_then(|event| launchpad.write(event));
+
+                        match self.selected_app {
+                            AppName::Spotify => {
+                                let event = self.spotify_receiver.try_recv();
+                                match event {
+                                    Ok(event) => {
+                                        let _ = launchpad.write(event);
+                                    },
+                                    _ => {},
+                                }
                             },
-                            _ => {},
+                            AppName::Youtube => {
+                                let command = self.youtube_receiver.try_recv();
+                                match command {
+                                    Ok(youtube::Out::Command(command)) => {
+                                        let _ = self.youtube_server.send(command);
+                                    },
+                                    Ok(youtube::Out::Event(event)) => {
+                                        let _ = launchpad.write(event);
+                                    },
+                                    _ => {},
+                                }
+                            },
                         }
 
-                        match spotify.read() {
+                        match launchpad.read() {
                             Ok(Some(event)) => {
-                                self.spotify_spawner.handle(event);
+                                match event.clone().into_app_index() {
+                                    Ok(Some(0)) => {
+                                        println!("Selecting Spotify");
+                                        self.selected_app = AppName::Spotify;
+                                        let _ = LaunchpadProEvent::from_image(spotify::get_spotify_logo())
+                                            .and_then(|event| launchpad.write(event));
+                                    },
+                                    Ok(Some(1)) => {
+                                        println!("Selecting Youtube");
+                                        self.selected_app = AppName::Youtube;
+                                        let _ = LaunchpadProEvent::from_image(youtube::app::get_youtube_logo())
+                                            .and_then(|event| launchpad.write(event));
+                                    },
+                                    _ => {
+                                        match self.selected_app {
+                                            AppName::Spotify => self.spotify_app.handle(event),
+                                            AppName::Youtube => self.youtube_app.handle(event),
+                                        }
+                                    },
+                                }
                                 Ok(())
                             },
                             _ => Ok(()),
@@ -114,31 +158,7 @@ impl Router {
                     Err(e) => Err(*e),
                 };
 
-                let youtube_result = match youtube_ports.as_mut() {
-                    Ok(youtube_ports) => {
-                        let command = self.youtube_receiver.try_recv();
-                        match command {
-                            Ok(youtube::Out::Command(command)) => {
-                                let _ = self.youtube_server.send(command);
-                            },
-                            Ok(youtube::Out::Event(event)) => {
-                                let _ = youtube_ports.write(event);
-                            },
-                            _ => {},
-                        }
-
-                        match youtube_ports.read() {
-                            Ok(Some(event)) => {
-                                self.youtube_app.handle(event);
-                                Ok(())
-                            },
-                            _ => Ok(()),
-                        }
-                    },
-                    Err(e) => Err(*e),
-                };
-
-                result = forward_result.or(spotify_result).or(youtube_result);
+                result = forward_result.or(launchpad_result);
                 match result {
                     Ok(_) => thread::sleep(MIDI_EVENT_POLL_INTERVAL),
                     _ => thread::sleep(MIDI_DEVICE_POLL_INTERVAL),

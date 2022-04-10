@@ -20,6 +20,11 @@ impl IntoIndex for [u8; 4] {
     }
 }
 
+/// MIDI Device that has the capability of switching applications
+pub trait IntoAppIndex {
+    fn into_app_index(self) -> Result<Option<u16>, Error>;
+}
+
 /// MIDI Device that is able to render a picture
 pub trait FromImage<T> {
     fn from_image(image: Image) -> Result<T, Error>;
@@ -33,4 +38,9 @@ pub trait FromImages<T> {
 /// MIDI Device that is able to highlight a note/square pad at a specific index
 pub trait FromSelectedIndex<T> {
     fn from_selected_index(index: u16) -> Result<T, Error>;
+}
+
+/// MIDI Device that is able to highlight "app selection" buttons with correct colors
+pub trait FromAppColors<T> {
+    fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<T, Error>;
 }
