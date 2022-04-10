@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::spotify;
 use crate::midi;
 use crate::youtube;
-use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex};
+use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::youtube::server::HttpServer;
 
@@ -129,10 +129,14 @@ impl Router {
                                     Ok(Some(0)) => {
                                         println!("Selecting Spotify");
                                         self.selected_app = AppName::Spotify;
+                                        let _ = LaunchpadProEvent::from_image(spotify::get_spotify_logo())
+                                            .and_then(|event| launchpad.write(event));
                                     },
                                     Ok(Some(1)) => {
                                         println!("Selecting Youtube");
                                         self.selected_app = AppName::Youtube;
+                                        let _ = LaunchpadProEvent::from_image(youtube::app::get_youtube_logo())
+                                            .and_then(|event| launchpad.write(event));
                                     },
                                     _ => {
                                         match self.selected_app {

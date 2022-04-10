@@ -54,7 +54,7 @@ impl FromSelectedIndex<LaunchpadProEvent> for LaunchpadProEvent {
         let column = index % 8 + 1;
         let led = row * 10 + column;
 
-        let bytes = vec![240, 0, 32, 41, 2, 16, 40, led, 3, 247];
+        let bytes = vec![240, 0, 32, 41, 2, 16, 40, led, 45, 247];
         return Ok(LaunchpadProEvent::from(Event::SysEx(bytes)));
     }
 }

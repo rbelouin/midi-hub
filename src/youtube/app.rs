@@ -80,14 +80,11 @@ impl<E: 'static> Youtube<E> {
     }
 }
 
-async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(), ()> where
-    E: FromImage<E>,
-    E: std::fmt::Debug,
-{
+pub fn get_youtube_logo() -> Image {
     let r = [255, 0, 0];
     let w = [255, 255, 255];
 
-    let image = Image {
+    return Image {
         width: 8,
         height: 8,
         bytes: vec![
@@ -101,8 +98,13 @@ async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(),
             r, r, r, r, r, r, r, r,
         ].concat(),
     };
+}
 
-    let event = E::from_image(image).map_err(|err| {
+async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(), ()> where
+    E: FromImage<E>,
+    E: std::fmt::Debug,
+{
+    let event = E::from_image(get_youtube_logo()).map_err(|err| {
         eprintln!("Could not convert the image into a MIDI event: {:?}", err);
         ()
     })?;
