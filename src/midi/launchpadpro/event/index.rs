@@ -1,4 +1,4 @@
-use crate::midi::{Event, Error, IntoIndex, IntoAppIndex, FromSelectedIndex};
+use crate::midi::{Event, Error, IntoIndex, IntoAppIndex, FromSelectedIndex, FromAppColors};
 use super::LaunchpadProEvent;
 
 impl IntoIndex for LaunchpadProEvent {
@@ -55,6 +55,29 @@ impl FromSelectedIndex<LaunchpadProEvent> for LaunchpadProEvent {
         let led = row * 10 + column;
 
         let bytes = vec![240, 0, 32, 41, 2, 16, 40, led, 45, 247];
+        return Ok(LaunchpadProEvent::from(Event::SysEx(bytes)));
+    }
+}
+
+impl FromAppColors<LaunchpadProEvent> for LaunchpadProEvent {
+    fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<LaunchpadProEvent, Error> {
+        if app_colors.len() > 8 {
+            return Err(Error::OutOfBoundIndexError);
+        }
+
+        let mut bytes = vec![240, 0, 32, 41, 2, 16, 11];
+
+        for index in 0..app_colors.len() {
+            let led = (89 - 10 * index) as u8;
+            bytes.append(&mut vec![
+                led,
+                app_colors[index][0] / 4,
+                app_colors[index][1] / 4,
+                app_colors[index][2] / 4,
+            ]);
+        }
+        bytes.push(247);
+
         return Ok(LaunchpadProEvent::from(Event::SysEx(bytes)));
     }
 }

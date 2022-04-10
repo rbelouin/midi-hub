@@ -80,6 +80,8 @@ impl<E: 'static> Youtube<E> {
     }
 }
 
+pub const COLOR: [u8; 3] = [255, 0, 0];
+
 pub fn get_youtube_logo() -> Image {
     let r = [255, 0, 0];
     let w = [255, 255, 255];

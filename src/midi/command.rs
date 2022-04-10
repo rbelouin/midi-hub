@@ -39,3 +39,8 @@ pub trait FromImages<T> {
 pub trait FromSelectedIndex<T> {
     fn from_selected_index(index: u16) -> Result<T, Error>;
 }
+
+/// MIDI Device that is able to highlight "app selection" buttons with correct colors
+pub trait FromAppColors<T> {
+    fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<T, Error>;
+}

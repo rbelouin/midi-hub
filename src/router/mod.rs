@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::spotify;
 use crate::midi;
 use crate::youtube;
-use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage};
+use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::youtube::server::HttpServer;
 
@@ -99,6 +99,11 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
+                        let _ = LaunchpadProEvent::from_app_colors(vec![
+                            spotify::COLOR,
+                            youtube::app::COLOR,
+                        ]).and_then(|event| launchpad.write(event));
+
                         match self.selected_app {
                             AppName::Spotify => {
                                 let event = self.spotify_receiver.try_recv();

@@ -265,6 +265,8 @@ async fn start_or_resume_index(token: String, state: Arc<State>, index: usize) -
     }
 }
 
+pub const COLOR: [u8; 3] = [0, 255, 0];
+
 pub fn get_spotify_logo() -> Image {
     let g = [0, 255, 0];
     let w = [255, 255, 255];
