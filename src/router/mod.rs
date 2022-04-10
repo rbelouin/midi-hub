@@ -9,8 +9,10 @@ use tokio::sync::mpsc;
 
 use crate::spotify;
 use crate::midi;
+use crate::youtube;
 use midi::{Connections, Error, Event, Reader, Writer};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
+use crate::youtube::server::HttpServer;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -20,6 +22,9 @@ pub struct RunConfig {
     pub input_name: String,
     pub output_name: String,
     pub spotify_selector: String,
+    pub youtube_device: String,
+    pub youtube_api_key: String,
+    pub youtube_playlist_id: String,
 }
 
 pub struct Router {
@@ -27,6 +32,9 @@ pub struct Router {
     term: Arc<AtomicBool>,
     spotify_spawner: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
     receiver: mpsc::Receiver<LaunchpadProEvent>,
+    youtube_server: HttpServer,
+    youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
+    youtube_receiver: mpsc::Receiver<youtube::Out<LaunchpadProEvent>>,
 }
 
 impl Router {
@@ -35,12 +43,18 @@ impl Router {
 
         let (sender, receiver) = mpsc::channel::<LaunchpadProEvent>(32);
         let spotify_spawner = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sender);
+        let youtube_server = HttpServer::start();
+        let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Out<LaunchpadProEvent>>(32);
+        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
 
         return Router {
             config,
             term,
             spotify_spawner,
             receiver,
+            youtube_server,
+            youtube_app,
+            youtube_receiver: yt_receiver,
         };
     }
 
@@ -60,6 +74,8 @@ impl Router {
             let mut input = connections.create_input_port(&self.config.input_name);
             let mut output = connections.create_output_port(&self.config.output_name);
             let mut spotify = connections.create_bidirectional_ports(&self.config.spotify_selector)
+                .map(|ports| LaunchpadPro::from(ports));
+            let mut youtube_ports = connections.create_bidirectional_ports(&self.config.youtube_device)
                 .map(|ports| LaunchpadPro::from(ports));
 
             let mut result = Ok(());
@@ -98,7 +114,31 @@ impl Router {
                     Err(e) => Err(*e),
                 };
 
-                result = forward_result.or(spotify_result);
+                let youtube_result = match youtube_ports.as_mut() {
+                    Ok(youtube_ports) => {
+                        let command = self.youtube_receiver.try_recv();
+                        match command {
+                            Ok(youtube::Out::Command(command)) => {
+                                let _ = self.youtube_server.send(command);
+                            },
+                            Ok(youtube::Out::Event(event)) => {
+                                let _ = youtube_ports.write(event);
+                            },
+                            _ => {},
+                        }
+
+                        match youtube_ports.read() {
+                            Ok(Some(event)) => {
+                                self.youtube_app.handle(event);
+                                Ok(())
+                            },
+                            _ => Ok(()),
+                        }
+                    },
+                    Err(e) => Err(*e),
+                };
+
+                result = forward_result.or(spotify_result).or(youtube_result);
                 match result {
                     Ok(_) => thread::sleep(MIDI_EVENT_POLL_INTERVAL),
                     _ => thread::sleep(MIDI_DEVICE_POLL_INTERVAL),

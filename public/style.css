@@ -1,0 +1,48 @@
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+.screen {
+  align-items: center;
+  display: flex;
+  height: 100vh;
+  justify-content: center;
+  width: 100vw;
+}
+
+.screen[data-screen="youtube"] {
+  background: #FF5555;
+}
+
+.screen::before {
+  content: ' ';
+  display: block;
+  width: 400px;
+  height: 400px;
+  background: #FF0000;
+  border-radius: 200px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-150px, -50px);
+  z-index: 0;
+}
+
+.screen::after {
+  content: ' ';
+  display: block;
+  width: 1000px;
+  height: 1000px;
+  background: #FF0000;
+  border-radius: 500px;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  transform: translate(50px, 150px);
+  z-index: 0;
+}
+
+#youtube-player {
+  z-index: 900;
+}

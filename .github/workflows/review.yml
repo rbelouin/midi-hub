@@ -4,6 +4,7 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    environment: testing
     steps:
       - uses: actions/checkout@v2
       - run: sudo apt-get update && sudo apt-get install -y libportmidi-dev
@@ -11,5 +12,7 @@ jobs:
         with:
           toolchain: stable
       - uses: actions-rs/cargo@v1
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         with:
           command: test
