@@ -20,6 +20,11 @@ impl IntoIndex for [u8; 4] {
     }
 }
 
+/// MIDI Device that has the capability of switching applications
+pub trait IntoAppIndex {
+    fn into_app_index(self) -> Result<Option<u16>, Error>;
+}
+
 /// MIDI Device that is able to render a picture
 pub trait FromImage<T> {
     fn from_image(image: Image) -> Result<T, Error>;
