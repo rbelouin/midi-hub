@@ -53,6 +53,48 @@ body {
   z-index: 0;
 }
 
+.spotify-current-track {
+  display: grid;
+  gap: 32px;
+  grid-template-areas:
+    "cover title"
+    "cover artists";
+  justify-content: left;
+  width: 1200px;
+  z-index: 900;
+}
+
+[data-screen="youtube"] .spotify-current-track {
+  display: none;
+}
+
+.spotify-current-track__cover {
+  box-shadow: 0 0 4px rgba(0, 0, 0, .4);
+  grid-area: cover;
+  height: 320px;
+}
+.spotify-current-track__cover[src=""] {
+  display: none;
+}
+
+.spotify-current-track__title {
+  color: white;
+  font-size: 62px;
+  font-family: helvetica, sans-serif;
+  font-weight: bold;
+  text-shadow: 0 0 4px rgba(0, 0, 0, .4);
+  grid-area: title;
+  align-self: flex-end;
+}
+
+.spotify-current-track__artists {
+  color: white;
+  font-size: 32px;
+  font-family: helvetica, sans-serif;
+  text-shadow: 0 0 4px rgba(0, 0, 0, .4);
+  grid-area: artists;
+}
+
 #youtube-player {
   z-index: 900;
 }

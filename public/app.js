@@ -29,6 +29,12 @@
         name: 'midi-hub',
         getOAuthToken: callback => { callback(spotifyToken) },
       });
+
+      spotifyPlayer.addListener('player_state_changed', (state) => {
+        document.querySelector('.spotify-current-track__cover').src = state.track_window.current_track.album.images[0].url;
+        document.querySelector('.spotify-current-track__title').textContent = state.track_window.current_track.name;
+        document.querySelector('.spotify-current-track__artists').textContent = state.track_window.current_track.artists.map(artist => artist.name).join(', ');
+      });
     }
 
     if (spotifyDeviceId) {
