@@ -11,8 +11,20 @@ body {
   width: 100vw;
 }
 
+.screen[data-screen="spotify"] {
+  background: #4CED85;
+}
+.screen[data-screen="spotify"]::before, 
+.screen[data-screen="spotify"]::after {
+  background: #1DD05D;
+}
+
 .screen[data-screen="youtube"] {
   background: #FF5555;
+}
+.screen[data-screen="youtube"]::before, 
+.screen[data-screen="youtube"]::after {
+  background: #FF0000;
 }
 
 .screen::before {
@@ -20,7 +32,6 @@ body {
   display: block;
   width: 400px;
   height: 400px;
-  background: #FF0000;
   border-radius: 200px;
   position: absolute;
   top: 0;
@@ -34,7 +45,6 @@ body {
   display: block;
   width: 1000px;
   height: 1000px;
-  background: #FF0000;
   border-radius: 500px;
   position: absolute;
   bottom: 0;

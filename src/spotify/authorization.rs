@@ -45,7 +45,7 @@ pub async fn spawn_authorization_browser(config: &SpotifyAuthorizationConfig) ->
     println!("Spawning a browser!");
     let client_id = config.client_id.clone();
     let _ = tokio::task::spawn_blocking(move || {
-        return open::that(format!("https://accounts.spotify.com/authorize?client_id={}&response_type=code&scope=user-modify-playback-state%20user-read-playback-state&redirect_uri=http://localhost:12345/callback", client_id));
+        return open::that(format!("https://accounts.spotify.com/authorize?client_id={}&response_type=code&scope=streaming+user-read-email+user-modify-playback-state+user-read-private&redirect_uri=http://localhost:12345/callback", client_id));
     }).await?;
     return Ok(());
 }

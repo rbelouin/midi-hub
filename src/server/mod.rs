@@ -3,6 +3,7 @@ extern crate futures_util;
 use std::sync::Arc;
 
 use futures_util::SinkExt;
+use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -10,7 +11,11 @@ use tokio::runtime::Builder;
 use warp::Filter;
 use warp::ws::{Message, WebSocket, Ws};
 
-use super::Command;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Command {
+    SpotifyPlay { track_id: String, access_token: String },
+    YoutubePlay { video_id: String },
+}
 
 pub struct HttpServer {
     sender: Arc<RwLock<Sender<Command>>>,

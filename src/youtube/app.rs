@@ -140,7 +140,7 @@ async fn handle_youtube_task<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<
             match item {
                 Some(item) => {
                     let video_id = item.snippet.resource_id.video_id;
-                    match sender.send(Out::Command(Command::Play(video_id.clone()))).await {
+                    match sender.send(Out::Command(Command::YoutubePlay { video_id: video_id.clone() })).await {
                         Ok(_) => println!("Playing track {}", video_id),
                         Err(_) => eprintln!("Could not play track {}", video_id),
                     }

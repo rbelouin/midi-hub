@@ -12,7 +12,7 @@ use crate::midi;
 use crate::youtube;
 use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
-use crate::youtube::server::HttpServer;
+use crate::server::HttpServer;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -35,8 +35,8 @@ pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
     spotify_app: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
-    spotify_receiver: mpsc::Receiver<LaunchpadProEvent>,
-    youtube_server: HttpServer,
+    spotify_receiver: mpsc::Receiver<spotify::Out<LaunchpadProEvent>>,
+    server: HttpServer,
     youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
     youtube_receiver: mpsc::Receiver<youtube::Out<LaunchpadProEvent>>,
     selected_app: AppName,
@@ -46,9 +46,9 @@ impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let (sp_sender, sp_receiver) = mpsc::channel::<LaunchpadProEvent>(32);
+        let (sp_sender, sp_receiver) = mpsc::channel::<spotify::Out<LaunchpadProEvent>>(32);
         let spotify_app = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sp_sender);
-        let youtube_server = HttpServer::start();
+        let server = HttpServer::start();
         let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Out<LaunchpadProEvent>>(32);
         let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
 
@@ -57,7 +57,7 @@ impl Router {
             term,
             spotify_app,
             spotify_receiver: sp_receiver,
-            youtube_server,
+            server,
             youtube_app,
             youtube_receiver: yt_receiver,
             selected_app: AppName::Spotify,
@@ -108,7 +108,10 @@ impl Router {
                             AppName::Spotify => {
                                 let event = self.spotify_receiver.try_recv();
                                 match event {
-                                    Ok(event) => {
+                                    Ok(spotify::Out::Command(command)) => {
+                                        let _ = self.server.send(command);
+                                    },
+                                    Ok(spotify::Out::Event(event)) => {
                                         let _ = launchpad.write(event);
                                     },
                                     _ => {},
@@ -118,7 +121,7 @@ impl Router {
                                 let command = self.youtube_receiver.try_recv();
                                 match command {
                                     Ok(youtube::Out::Command(command)) => {
-                                        let _ = self.youtube_server.send(command);
+                                        let _ = self.server.send(command);
                                     },
                                     Ok(youtube::Out::Event(event)) => {
                                         let _ = launchpad.write(event);
