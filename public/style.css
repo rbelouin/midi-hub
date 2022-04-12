@@ -11,8 +11,20 @@ body {
   width: 100vw;
 }
 
+.screen[data-screen="spotify"] {
+  background: #4CED85;
+}
+.screen[data-screen="spotify"]::before, 
+.screen[data-screen="spotify"]::after {
+  background: #1DD05D;
+}
+
 .screen[data-screen="youtube"] {
   background: #FF5555;
+}
+.screen[data-screen="youtube"]::before, 
+.screen[data-screen="youtube"]::after {
+  background: #FF0000;
 }
 
 .screen::before {
@@ -20,7 +32,6 @@ body {
   display: block;
   width: 400px;
   height: 400px;
-  background: #FF0000;
   border-radius: 200px;
   position: absolute;
   top: 0;
@@ -34,13 +45,54 @@ body {
   display: block;
   width: 1000px;
   height: 1000px;
-  background: #FF0000;
   border-radius: 500px;
   position: absolute;
   bottom: 0;
   right: 0;
   transform: translate(50px, 150px);
   z-index: 0;
+}
+
+.spotify-current-track {
+  display: grid;
+  gap: 32px;
+  grid-template-areas:
+    "cover title"
+    "cover artists";
+  justify-content: left;
+  width: 1200px;
+  z-index: 900;
+}
+
+[data-screen="youtube"] .spotify-current-track {
+  display: none;
+}
+
+.spotify-current-track__cover {
+  box-shadow: 0 0 4px rgba(0, 0, 0, .4);
+  grid-area: cover;
+  height: 320px;
+}
+.spotify-current-track__cover[src=""] {
+  display: none;
+}
+
+.spotify-current-track__title {
+  color: white;
+  font-size: 62px;
+  font-family: helvetica, sans-serif;
+  font-weight: bold;
+  text-shadow: 0 0 4px rgba(0, 0, 0, .4);
+  grid-area: title;
+  align-self: flex-end;
+}
+
+.spotify-current-track__artists {
+  color: white;
+  font-size: 32px;
+  font-family: helvetica, sans-serif;
+  text-shadow: 0 0 4px rgba(0, 0, 0, .4);
+  grid-area: artists;
 }
 
 #youtube-player {

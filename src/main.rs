@@ -8,6 +8,7 @@ mod image;
 mod midi;
 mod router;
 mod youtube;
+mod server;
 
 enum Config {
     LoginConfig {

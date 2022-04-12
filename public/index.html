@@ -2,14 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>midi-hub | YouTube</title>
+  <title>midi-hub</title>
   <link href="./style.css" rel="stylesheet" type="text/css" />
 </head>
   <body>
-    <div class="screen" data-screen="youtube">
+    <div class="screen" data-screen="spotify">
+      <div class="spotify-current-track">
+        <img class="spotify-current-track__cover" src="" alt="cover" />
+        <div class="spotify-current-track__title"></div>
+        <div class="spotify-current-track__artists"></div>
+      </div>
+
       <div id="youtube-player"></div>
     </div>
     <script src="./app.js"></script>
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
     <script src="https://www.youtube.com/iframe_api" async></script>
   </body>
 </html>

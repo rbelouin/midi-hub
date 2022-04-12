@@ -1,13 +1,7 @@
-use serde::{Serialize, Deserialize};
+use crate::server::Command;
 
 pub mod app;
 pub mod client;
-pub mod server;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Command {
-    Play(String),
-}
 
 #[derive(Debug)]
 pub enum Out<E> where E: std::fmt::Debug {
