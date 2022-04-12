@@ -38,7 +38,6 @@ pub struct Router {
     spotify_receiver: mpsc::Receiver<spotify::Out<LaunchpadProEvent>>,
     server: HttpServer,
     youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
-    youtube_receiver: mpsc::Receiver<youtube::Out<LaunchpadProEvent>>,
     selected_app: AppName,
 }
 
@@ -49,8 +48,7 @@ impl Router {
         let (sp_sender, sp_receiver) = mpsc::channel::<spotify::Out<LaunchpadProEvent>>(32);
         let spotify_app = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sp_sender);
         let server = HttpServer::start();
-        let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Out<LaunchpadProEvent>>(32);
-        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
+        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone());
 
         return Router {
             config,
@@ -59,7 +57,6 @@ impl Router {
             spotify_receiver: sp_receiver,
             server,
             youtube_app,
-            youtube_receiver: yt_receiver,
             selected_app: AppName::Spotify,
         };
     }
@@ -118,7 +115,7 @@ impl Router {
                                 }
                             },
                             AppName::Youtube => {
-                                let command = self.youtube_receiver.try_recv();
+                                let command = self.youtube_app.receive();
                                 match command {
                                     Ok(youtube::Out::Command(command)) => {
                                         let _ = self.server.send(command);
@@ -149,7 +146,7 @@ impl Router {
                                     _ => {
                                         match self.selected_app {
                                             AppName::Spotify => self.spotify_app.handle(event),
-                                            AppName::Youtube => self.youtube_app.handle(event),
+                                            AppName::Youtube => self.youtube_app.send(event),
                                         }
                                     },
                                 }
