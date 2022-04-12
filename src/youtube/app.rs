@@ -53,10 +53,14 @@ impl<E: 'static> Youtube<E> {
                 let _ = render_youtube_logo(Arc::clone(&sender)).await;
                 let _ = pull_playlist_items(Arc::clone(&state_copy)).await;
                 while let Some(event) = recv.recv().await {
-                    let mut last_action = state_copy.last_action.lock().unwrap();
-                    if last_action.elapsed() > DELAY {
+                    let state = Arc::clone(&state_copy);
+                    let time_elapsed = {
+                        let last_action = state.last_action.lock().unwrap();
+                        last_action.elapsed()
+                    };
+
+                    if time_elapsed > DELAY {
                         tokio::spawn(handle_youtube_task(Arc::clone(&state_copy), Arc::clone(&sender), event.clone()));
-                        *last_action = Instant::now();
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -132,6 +136,11 @@ async fn handle_youtube_task<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<
 {
     match event_in.into_index() {
         Ok(Some(index)) => {
+            {
+                let mut last_action = state.last_action.lock().unwrap();
+                *last_action = Instant::now();
+            }
+
             let item = {
                 let items = state.items.lock().unwrap();
                 items.get(usize::from(index)).map(|item| item.clone())

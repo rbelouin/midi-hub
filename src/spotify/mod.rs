@@ -79,10 +79,13 @@ impl<E: 'static> SpotifyTaskSpawner<E> {
                 while let Some(event) = recv.recv().await {
                     let config = Arc::clone(&config_copy);
                     let state = Arc::clone(&state_copy);
-                    let mut last_action = state.last_action.lock().unwrap();
-                    if last_action.elapsed() > DELAY {
+                    let time_elapsed = {
+                        let last_action = state.last_action.lock().unwrap();
+                        last_action.elapsed()
+                    };
+
+                    if time_elapsed > DELAY {
                         tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&state), Arc::clone(&sender), event.clone()));
-                        *last_action = Instant::now();
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -138,6 +141,11 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
 {
     let _ = match event_in.into_index() {
         Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
+            {
+                let mut last_action = state.last_action.lock().unwrap();
+                *last_action = Instant::now();
+            }
+
             let s = Arc::clone(&state);
             let playing = *s.playing.lock().unwrap();
             if playing == Some(index) {
