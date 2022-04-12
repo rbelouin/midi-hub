@@ -4,7 +4,7 @@ pub mod app;
 pub mod client;
 
 #[derive(Debug)]
-pub enum Out<E> where E: std::fmt::Debug {
+pub enum Out<E> {
     Command(Command),
     Event(E),
 }

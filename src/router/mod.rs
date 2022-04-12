@@ -5,8 +5,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc;
-
 use crate::spotify;
 use crate::midi;
 use crate::youtube;
@@ -34,11 +32,9 @@ pub struct RunConfig {
 pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
-    spotify_app: spotify::SpotifyTaskSpawner<LaunchpadProEvent>,
-    spotify_receiver: mpsc::Receiver<spotify::Out<LaunchpadProEvent>>,
     server: HttpServer,
+    spotify_app: spotify::app::Spotify<LaunchpadProEvent>,
     youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
-    youtube_receiver: mpsc::Receiver<youtube::Out<LaunchpadProEvent>>,
     selected_app: AppName,
 }
 
@@ -46,20 +42,16 @@ impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let (sp_sender, sp_receiver) = mpsc::channel::<spotify::Out<LaunchpadProEvent>>(32);
-        let spotify_app = spotify::SpotifyTaskSpawner::new(config.spotify_app_config.clone(), sp_sender);
+        let spotify_app = spotify::app::Spotify::new(config.spotify_app_config.clone());
         let server = HttpServer::start();
-        let (yt_sender, yt_receiver) = mpsc::channel::<youtube::Out<LaunchpadProEvent>>(32);
-        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone(), yt_sender);
+        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone());
 
         return Router {
             config,
             term,
-            spotify_app,
-            spotify_receiver: sp_receiver,
             server,
+            spotify_app,
             youtube_app,
-            youtube_receiver: yt_receiver,
             selected_app: AppName::Spotify,
         };
     }
@@ -100,13 +92,13 @@ impl Router {
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
                         let _ = LaunchpadProEvent::from_app_colors(vec![
-                            spotify::COLOR,
+                            spotify::app::COLOR,
                             youtube::app::COLOR,
                         ]).and_then(|event| launchpad.write(event));
 
                         match self.selected_app {
                             AppName::Spotify => {
-                                let event = self.spotify_receiver.try_recv();
+                                let event = self.spotify_app.receive();
                                 match event {
                                     Ok(spotify::Out::Command(command)) => {
                                         let _ = self.server.send(command);
@@ -118,7 +110,7 @@ impl Router {
                                 }
                             },
                             AppName::Youtube => {
-                                let command = self.youtube_receiver.try_recv();
+                                let command = self.youtube_app.receive();
                                 match command {
                                     Ok(youtube::Out::Command(command)) => {
                                         let _ = self.server.send(command);
@@ -137,7 +129,7 @@ impl Router {
                                     Ok(Some(0)) => {
                                         println!("Selecting Spotify");
                                         self.selected_app = AppName::Spotify;
-                                        let _ = LaunchpadProEvent::from_image(spotify::get_spotify_logo())
+                                        let _ = LaunchpadProEvent::from_image(spotify::app::get_spotify_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     Ok(Some(1)) => {
@@ -148,8 +140,8 @@ impl Router {
                                     },
                                     _ => {
                                         match self.selected_app {
-                                            AppName::Spotify => self.spotify_app.handle(event),
-                                            AppName::Youtube => self.youtube_app.handle(event),
+                                            AppName::Spotify => self.spotify_app.send(event),
+                                            AppName::Youtube => self.youtube_app.send(event),
                                         }
                                     },
                                 }

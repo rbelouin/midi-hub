@@ -23,7 +23,7 @@ fn main() {
     let result = args().and_then(|config| {
         match config {
             Config::LoginConfig { config } => {
-                return spotify::login_sync(config.clone()).and_then(|token| token.refresh_token.ok_or(()))
+                return spotify::authorization::login_sync(config.clone()).and_then(|token| token.refresh_token.ok_or(()))
                     .map(|refresh_token| {
                         println!("Please use this refresh token to start the service: {:?}", refresh_token);
                         return ();

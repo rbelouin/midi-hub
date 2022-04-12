@@ -7,11 +7,13 @@ extern crate tokio;
 
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
+use std::sync::Arc;
 
 use base64::encode;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use warp::Filter;
+use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
@@ -29,6 +31,26 @@ pub struct SpotifyTokenResponse {
     pub scope: Option<String>,
     pub expires_in: i16,
     pub refresh_token: Option<String>,
+}
+
+pub fn login_sync(config: super::SpotifyAppConfig) -> Result<SpotifyTokenResponse, ()> {
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let config = Arc::new(config);
+    return runtime.block_on(runtime.spawn(async move {
+        let response = authorize(&config.authorization).await;
+        return match response {
+            Ok(token) => Ok(token),
+            Err(_) => {
+                println!("Error!");
+                Err(())
+            },
+        }
+    })).unwrap();
 }
 
 pub async fn authorize(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, ()> {

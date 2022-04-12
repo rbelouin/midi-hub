@@ -10,10 +10,9 @@ use crate::midi::{FromImage, IntoIndex};
 use super::{Command, Out};
 use super::client;
 
-#[derive(Clone)]
 pub struct Youtube<E> {
-    state: Arc<State>,
-    spawn: mpsc::Sender<E>,
+    in_sender: mpsc::Sender<E>,
+    out_receiver: mpsc::Receiver<Out<E>>,
 }
 
 struct State {
@@ -26,15 +25,16 @@ struct State {
 const DELAY: Duration = Duration::from_millis(5_000);
 
 impl<E: 'static> Youtube<E> {
-    pub fn new(api_key: String, playlist_id: String, sender: mpsc::Sender<Out<E>>) -> Youtube<E> where
+    pub fn new(api_key: String, playlist_id: String) -> Youtube<E> where
         E: IntoIndex,
         E: FromImage<E>,
         E: Clone,
         E: std::fmt::Debug,
         E: std::marker::Send,
     {
-        let sender = Arc::new(sender);
-        let (send, mut recv) = mpsc::channel::<E>(32);
+        let (in_sender, mut in_receiver) = mpsc::channel::<E>(32);
+        let (out_sender, out_receiver) = mpsc::channel::<Out<E>>(32);
+
         let state = Arc::new(State {
             api_key,
             playlist_id,
@@ -48,11 +48,12 @@ impl<E: 'static> Youtube<E> {
             .unwrap();
 
         let state_copy = Arc::clone(&state);
+        let out_sender = Arc::new(out_sender);
         std::thread::spawn(move || {
             rt.block_on(async move {
-                let _ = render_youtube_logo(Arc::clone(&sender)).await;
+                let _ = render_youtube_logo(Arc::clone(&out_sender)).await;
                 let _ = pull_playlist_items(Arc::clone(&state_copy)).await;
-                while let Some(event) = recv.recv().await {
+                while let Some(event) = in_receiver.recv().await {
                     let state = Arc::clone(&state_copy);
                     let time_elapsed = {
                         let last_action = state.last_action.lock().unwrap();
@@ -60,7 +61,7 @@ impl<E: 'static> Youtube<E> {
                     };
 
                     if time_elapsed > DELAY {
-                        tokio::spawn(handle_youtube_task(Arc::clone(&state_copy), Arc::clone(&sender), event.clone()));
+                        tokio::spawn(handle_youtube_task(Arc::clone(&state_copy), Arc::clone(&out_sender), event.clone()));
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -69,18 +70,22 @@ impl<E: 'static> Youtube<E> {
         });
 
         Youtube {
-            state,
-            spawn: send,
+            in_sender,
+            out_receiver,
         }
     }
 
-    pub fn handle(&self, event: E) where
+    pub fn send(&self, event: E) where
         E: IntoIndex
     {
-        match self.spawn.blocking_send(event) {
+        match self.in_sender.blocking_send(event) {
             Ok(()) => {},
             Err(_) => panic!("The shared runtime has shut down."),
         }
+    }
+
+    pub fn receive(&mut self) -> Result<Out<E>, mpsc::error::TryRecvError> {
+        return self.out_receiver.try_recv();
     }
 }
 
