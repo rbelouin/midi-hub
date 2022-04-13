@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::apps;
+use crate::apps::{App, Out};
 use crate::midi;
 use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
@@ -90,7 +91,7 @@ impl Router {
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
                         let _ = LaunchpadProEvent::from_app_colors(vec![
-                            apps::spotify::app::COLOR,
+                            self.spotify_app.get_color(),
                             apps::youtube::app::COLOR,
                         ]).and_then(|event| launchpad.write(event));
 
@@ -98,10 +99,10 @@ impl Router {
                             AppName::Spotify => {
                                 let event = self.spotify_app.receive();
                                 match event {
-                                    Ok(apps::spotify::Out::Command(command)) => {
+                                    Ok(Out::Server(command)) => {
                                         let _ = self.server.send(command);
                                     },
-                                    Ok(apps::spotify::Out::Event(event)) => {
+                                    Ok(Out::Event(event)) => {
                                         let _ = launchpad.write(event);
                                     },
                                     _ => {},
@@ -125,9 +126,9 @@ impl Router {
                             Ok(Some(event)) => {
                                 match event.clone().into_app_index() {
                                     Ok(Some(0)) => {
-                                        println!("Selecting Spotify");
+                                        println!("Selecting {}", self.spotify_app.get_name());
                                         self.selected_app = AppName::Spotify;
-                                        let _ = LaunchpadProEvent::from_image(apps::spotify::app::get_spotify_logo())
+                                        let _ = LaunchpadProEvent::from_image(self.spotify_app.get_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     Ok(Some(1)) => {
@@ -138,7 +139,8 @@ impl Router {
                                     },
                                     _ => {
                                         match self.selected_app {
-                                            AppName::Spotify => self.spotify_app.send(event),
+                                            AppName::Spotify => self.spotify_app.send(event)
+                                                .unwrap_or_else(|err| eprintln!("[{}] could not send event: {:?}", self.spotify_app.get_name(), err)),
                                             AppName::Youtube => self.youtube_app.send(event),
                                         }
                                     },
