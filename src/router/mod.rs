@@ -5,9 +5,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::spotify;
+use crate::apps;
+use crate::apps::{App, Out};
 use crate::midi;
-use crate::youtube;
 use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::server::HttpServer;
@@ -15,44 +15,36 @@ use crate::server::HttpServer;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-enum AppName {
-    Spotify,
-    Youtube,
-}
-
 pub struct RunConfig {
-    pub spotify_app_config: spotify::SpotifyAppConfig,
     pub input_name: String,
     pub output_name: String,
     pub launchpad_name: String,
-    pub youtube_api_key: String,
-    pub youtube_playlist_id: String,
+    pub spotify_config: apps::spotify::Config,
+    pub youtube_config: apps::youtube::Config,
 }
 
 pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
     server: HttpServer,
-    spotify_app: spotify::app::Spotify<LaunchpadProEvent>,
-    youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
-    selected_app: AppName,
+    apps: Vec<Box<dyn App<LaunchpadProEvent, Out<LaunchpadProEvent>>>>,
+    selected_app: usize,
 }
 
 impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let spotify_app = spotify::app::Spotify::new(config.spotify_app_config.clone());
         let server = HttpServer::start();
-        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone());
+        let spotify_app = apps::spotify::app::Spotify::new(config.spotify_config.clone());
+        let youtube_app = apps::youtube::app::Youtube::new(config.youtube_config.clone());
 
         return Router {
             config,
             term,
             server,
-            spotify_app,
-            youtube_app,
-            selected_app: AppName::Spotify,
+            apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
+            selected_app: 0,
         };
     }
 
@@ -91,57 +83,45 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
-                        let _ = LaunchpadProEvent::from_app_colors(vec![
-                            spotify::app::COLOR,
-                            youtube::app::COLOR,
-                        ]).and_then(|event| launchpad.write(event));
+                        let _ = LaunchpadProEvent::from_app_colors(
+                            self.apps.iter().map(|app| app.get_color()).collect()
+                        ).and_then(|event| launchpad.write(event));
 
-                        match self.selected_app {
-                            AppName::Spotify => {
-                                let event = self.spotify_app.receive();
-                                match event {
-                                    Ok(spotify::Out::Command(command)) => {
-                                        let _ = self.server.send(command);
-                                    },
-                                    Ok(spotify::Out::Event(event)) => {
-                                        let _ = launchpad.write(event);
-                                    },
-                                    _ => {},
-                                }
-                            },
-                            AppName::Youtube => {
-                                let command = self.youtube_app.receive();
-                                match command {
-                                    Ok(youtube::Out::Command(command)) => {
-                                        let _ = self.server.send(command);
-                                    },
-                                    Ok(youtube::Out::Event(event)) => {
-                                        let _ = launchpad.write(event);
-                                    },
-                                    _ => {},
-                                }
-                            },
+                        if self.apps.len() > self.selected_app {
+                            let event = self.apps[self.selected_app].receive();
+                            match event {
+                                Ok(Out::Server(command)) => {
+                                    let _ = self.server.send(command);
+                                },
+                                Ok(Out::Event(event)) => {
+                                    let _ = launchpad.write(event);
+                                },
+                                _ => {},
+                            }
                         }
 
                         match launchpad.read() {
                             Ok(Some(event)) => {
-                                match event.clone().into_app_index() {
-                                    Ok(Some(0)) => {
-                                        println!("Selecting Spotify");
-                                        self.selected_app = AppName::Spotify;
-                                        let _ = LaunchpadProEvent::from_image(spotify::app::get_spotify_logo())
-                                            .and_then(|event| launchpad.write(event));
-                                    },
-                                    Ok(Some(1)) => {
-                                        println!("Selecting Youtube");
-                                        self.selected_app = AppName::Youtube;
-                                        let _ = LaunchpadProEvent::from_image(youtube::app::get_youtube_logo())
+                                let selected_app = event.clone().into_app_index().ok().flatten()
+                                    .and_then(|app_index| {
+                                        let selected_app = self.apps.get(app_index as usize);
+                                        if selected_app.is_some() {
+                                            self.selected_app = app_index as usize;
+                                        }
+                                        return selected_app;
+                                    });
+
+                                match selected_app {
+                                    Some(selected_app) => {
+                                        println!("Selecting {}", selected_app.get_name());
+                                        let _ = LaunchpadProEvent::from_image(selected_app.get_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     _ => {
-                                        match self.selected_app {
-                                            AppName::Spotify => self.spotify_app.send(event),
-                                            AppName::Youtube => self.youtube_app.send(event),
+                                        match self.apps.get(self.selected_app) {
+                                            Some(app) => app.send(event)
+                                                .unwrap_or_else(|err| eprintln!("[{}] could not send event: {:?}", app.get_name(), err)),
+                                            None => eprintln!("No app found for index: {}", self.selected_app),
                                         }
                                     },
                                 }

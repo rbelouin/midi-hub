@@ -5,20 +5,19 @@ use tokio::time::sleep;
 use std::{future::Future, sync::{Arc, Mutex}};
 use std::time::{Duration, Instant};
 
+use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
 use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
-use crate::server::Command;
 
-use super::{Out, SpotifyAppConfig};
+use super::Config;
 use super::client;
 use super::client::SpotifyError;
 use super::client::tracks::SpotifyTrack;
 
-pub struct Spotify<E> {
-    config: Arc<SpotifyAppConfig>,
-    in_sender: mpsc::Sender<E>,
-    out_receiver: mpsc::Receiver<Out<E>>,
-}
+pub const NAME: &'static str = "spotify";
+pub const COLOR: [u8; 3] = [0, 255, 0];
+
+const DELAY: Duration = Duration::from_millis(5_000);
 
 struct State {
     access_token: Mutex<Option<String>>,
@@ -27,18 +26,21 @@ struct State {
     playing: Mutex<Option<u16>>,
 }
 
-const DELAY: Duration = Duration::from_millis(5_000);
+pub struct Spotify<E> {
+    in_sender: mpsc::Sender<E>,
+    out_receiver: mpsc::Receiver<Out<E>>,
+}
 
-impl<E: 'static> Spotify<E> {
-    pub fn new(config: SpotifyAppConfig) -> Spotify<E> where
-        E: FromImage<E>,
-        E: FromImages<E>,
-        E: FromSelectedIndex<E>,
-        E: IntoIndex,
-        E: Clone,
-        E: std::fmt::Debug,
-        E: std::marker::Send,
-    {
+impl<E: 'static> Spotify<E> where
+    E: FromImage<E>,
+    E: FromImages<E>,
+    E: FromSelectedIndex<E>,
+    E: IntoIndex,
+    E: Clone,
+    E: std::fmt::Debug,
+    E: std::marker::Send,
+{
+    pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
         let state = Arc::new(State {
             access_token: Mutex::new(None),
@@ -79,29 +81,58 @@ impl<E: 'static> Spotify<E> {
         });
 
         Spotify {
-            config,
             in_sender,
             out_receiver,
         }
     }
+}
 
-    pub fn send(&self, event: E) where
-        E: FromImage<E>,
-        E: FromImages<E>,
-        E: IntoIndex
-    {
-        match self.in_sender.blocking_send(event) {
-            Ok(()) => {},
-            Err(_) => panic!("The shared runtime has shut down."),
-        }
+impl<E: 'static> App<E, Out<E>> for Spotify<E> where
+    E: FromImage<E>,
+    E: FromImages<E>,
+    E: FromSelectedIndex<E>,
+    E: IntoIndex,
+    E: Clone,
+    E: std::fmt::Debug,
+    E: std::marker::Send,
+{
+    fn get_name(&self) -> &'static str {
+        return NAME;
     }
 
-    pub fn receive(&mut self) -> Result<Out<E>, mpsc::error::TryRecvError> {
+    fn get_color(&self) -> [u8; 3] {
+        return COLOR;
+    }
+
+    fn get_logo(&self) -> Image {
+        let g = [0, 255, 0];
+        let w = [255, 255, 255];
+        return Image {
+            width: 8,
+            height: 8,
+            bytes: vec![
+                g, g, g, g, g, g, g, g,
+                g, g, w, w, w, w, g, g,
+                g, w, g, g, g, g, w, g,
+                g, g, w, w, w, w, g, g,
+                g, w, g, g, g, g, w, g,
+                g, g, w, w, w, w, g, g,
+                g, w, g, g, g, g, w, g,
+                g, g, g, g, g, g, g, g,
+            ].concat(),
+        };
+    }
+
+    fn send(&self, event: E) -> Result<(), mpsc::error::SendError<E>> {
+        return self.in_sender.blocking_send(event);
+    }
+
+    fn receive(&mut self) -> Result<Out<E>, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
     }
 }
 
-async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
+async fn handle_spotify_task<E>(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
     E: FromImage<E>,
     E: FromImages<E>,
     E: FromSelectedIndex<E>,
@@ -167,7 +198,7 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
     };
 }
 
-async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) {
+async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     let tracks = with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
         return client::playlists::get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await;
     }).await;
@@ -207,7 +238,7 @@ async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<
     };
 }
 
-async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, state: Arc<State>, f: F) -> Result<A, ()> where
+async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f: F) -> Result<A, ()> where
     F: Fn(String) -> Fut,
     Fut: Future<Output = Result<A, SpotifyError>>,
 {
@@ -233,7 +264,7 @@ async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, state: Arc<
     };
 }
 
-async fn fetch_and_store_access_token(config: Arc<SpotifyAppConfig>, state: Arc<State>) ->  Result<String, ()> {
+async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->  Result<String, ()> {
     let token_response =  super::authorization::refresh_token(&config.authorization).await.unwrap();
     let mut new_token = state.access_token.lock().unwrap();
     *new_token = Some(token_response.access_token.clone());
@@ -249,17 +280,15 @@ async fn start_or_resume_index<E>(token: String, state: Arc<State>, sender: Arc<
         .map(|track| track.clone());
 
     return match track {
-        Some(track) => sender.send(Out::Command(Command::SpotifyPlay {
+        Some(track) => sender.send(ServerCommand::SpotifyPlay {
             track_id: format!("spotify:track:{}", track.id.clone()),
             access_token: token
-        })).await
+        }.into()).await
             .map(|_| track)
             .map_err(|_| SpotifyError::Unknown),
         _ => Err(SpotifyError::Unknown),
     }
 }
-
-pub const COLOR: [u8; 3] = [0, 255, 0];
 
 pub fn get_spotify_logo() -> Image {
     let g = [0, 255, 0];
