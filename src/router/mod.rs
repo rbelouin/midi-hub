@@ -5,9 +5,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::spotify;
+use crate::apps;
 use crate::midi;
-use crate::youtube;
 use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::server::HttpServer;
@@ -24,16 +23,16 @@ pub struct RunConfig {
     pub input_name: String,
     pub output_name: String,
     pub launchpad_name: String,
-    pub spotify_config: spotify::Config,
-    pub youtube_config: youtube::Config,
+    pub spotify_config: apps::spotify::Config,
+    pub youtube_config: apps::youtube::Config,
 }
 
 pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
     server: HttpServer,
-    spotify_app: spotify::app::Spotify<LaunchpadProEvent>,
-    youtube_app: youtube::app::Youtube<LaunchpadProEvent>,
+    spotify_app: apps::spotify::app::Spotify<LaunchpadProEvent>,
+    youtube_app: apps::youtube::app::Youtube<LaunchpadProEvent>,
     selected_app: AppName,
 }
 
@@ -42,8 +41,8 @@ impl Router {
         let term = Arc::new(AtomicBool::new(false));
 
         let server = HttpServer::start();
-        let spotify_app = spotify::app::Spotify::new(config.spotify_config.clone());
-        let youtube_app = youtube::app::Youtube::new(config.youtube_config.clone());
+        let spotify_app = apps::spotify::app::Spotify::new(config.spotify_config.clone());
+        let youtube_app = apps::youtube::app::Youtube::new(config.youtube_config.clone());
 
         return Router {
             config,
@@ -91,18 +90,18 @@ impl Router {
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
                         let _ = LaunchpadProEvent::from_app_colors(vec![
-                            spotify::app::COLOR,
-                            youtube::app::COLOR,
+                            apps::spotify::app::COLOR,
+                            apps::youtube::app::COLOR,
                         ]).and_then(|event| launchpad.write(event));
 
                         match self.selected_app {
                             AppName::Spotify => {
                                 let event = self.spotify_app.receive();
                                 match event {
-                                    Ok(spotify::Out::Command(command)) => {
+                                    Ok(apps::spotify::Out::Command(command)) => {
                                         let _ = self.server.send(command);
                                     },
-                                    Ok(spotify::Out::Event(event)) => {
+                                    Ok(apps::spotify::Out::Event(event)) => {
                                         let _ = launchpad.write(event);
                                     },
                                     _ => {},
@@ -111,10 +110,10 @@ impl Router {
                             AppName::Youtube => {
                                 let command = self.youtube_app.receive();
                                 match command {
-                                    Ok(youtube::Out::Command(command)) => {
+                                    Ok(apps::youtube::Out::Command(command)) => {
                                         let _ = self.server.send(command);
                                     },
-                                    Ok(youtube::Out::Event(event)) => {
+                                    Ok(apps::youtube::Out::Event(event)) => {
                                         let _ = launchpad.write(event);
                                     },
                                     _ => {},
@@ -128,13 +127,13 @@ impl Router {
                                     Ok(Some(0)) => {
                                         println!("Selecting Spotify");
                                         self.selected_app = AppName::Spotify;
-                                        let _ = LaunchpadProEvent::from_image(spotify::app::get_spotify_logo())
+                                        let _ = LaunchpadProEvent::from_image(apps::spotify::app::get_spotify_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     Ok(Some(1)) => {
                                         println!("Selecting Youtube");
                                         self.selected_app = AppName::Youtube;
-                                        let _ = LaunchpadProEvent::from_image(youtube::app::get_youtube_logo())
+                                        let _ = LaunchpadProEvent::from_image(apps::youtube::app::get_youtube_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     _ => {
