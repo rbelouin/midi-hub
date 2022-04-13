@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::image::Image;
 use crate::midi::{FromImage, IntoIndex};
 
-use super::{Command, Out};
+use super::{Command, Config, Out};
 use super::client;
 
 pub struct Youtube<E> {
@@ -16,8 +16,7 @@ pub struct Youtube<E> {
 }
 
 struct State {
-    api_key: String,
-    playlist_id: String,
+    config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
 }
@@ -25,7 +24,7 @@ struct State {
 const DELAY: Duration = Duration::from_millis(5_000);
 
 impl<E: 'static> Youtube<E> {
-    pub fn new(api_key: String, playlist_id: String) -> Youtube<E> where
+    pub fn new(config: Config) -> Youtube<E> where
         E: IntoIndex,
         E: FromImage<E>,
         E: Clone,
@@ -36,8 +35,7 @@ impl<E: 'static> Youtube<E> {
         let (out_sender, out_receiver) = mpsc::channel::<Out<E>>(32);
 
         let state = Arc::new(State {
-            api_key,
-            playlist_id,
+            config,
             last_action: Mutex::new(Instant::now() - DELAY),
             items: Mutex::new(vec![]),
         });
@@ -128,7 +126,11 @@ async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(),
 
 async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
     println!("Pulling Youtube playlist items…");
-    let new_items = client::playlist::get_all_items(state.api_key.clone(), state.playlist_id.clone()).await?;
+    let new_items = client::playlist::get_all_items(
+        state.config.api_key.clone(),
+        state.config.playlist_id.clone(),
+    ).await?;
+
     let mut actual_items = state.items.lock().unwrap();
     *actual_items = new_items;
     println!("Pulling Youtube playlist items, done!");

@@ -21,12 +21,11 @@ enum AppName {
 }
 
 pub struct RunConfig {
-    pub spotify_app_config: spotify::SpotifyAppConfig,
     pub input_name: String,
     pub output_name: String,
     pub launchpad_name: String,
-    pub youtube_api_key: String,
-    pub youtube_playlist_id: String,
+    pub spotify_config: spotify::Config,
+    pub youtube_config: youtube::Config,
 }
 
 pub struct Router {
@@ -42,9 +41,9 @@ impl Router {
     pub fn new(config: RunConfig) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
-        let spotify_app = spotify::app::Spotify::new(config.spotify_app_config.clone());
         let server = HttpServer::start();
-        let youtube_app = youtube::app::Youtube::new(config.youtube_api_key.clone(), config.youtube_playlist_id.clone());
+        let spotify_app = spotify::app::Spotify::new(config.spotify_config.clone());
+        let youtube_app = youtube::app::Youtube::new(config.youtube_config.clone());
 
         return Router {
             config,

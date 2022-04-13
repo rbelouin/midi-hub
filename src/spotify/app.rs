@@ -9,13 +9,12 @@ use crate::image::Image;
 use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
 use crate::server::Command;
 
-use super::{Out, SpotifyAppConfig};
+use super::{Out, Config};
 use super::client;
 use super::client::SpotifyError;
 use super::client::tracks::SpotifyTrack;
 
 pub struct Spotify<E> {
-    config: Arc<SpotifyAppConfig>,
     in_sender: mpsc::Sender<E>,
     out_receiver: mpsc::Receiver<Out<E>>,
 }
@@ -30,7 +29,7 @@ struct State {
 const DELAY: Duration = Duration::from_millis(5_000);
 
 impl<E: 'static> Spotify<E> {
-    pub fn new(config: SpotifyAppConfig) -> Spotify<E> where
+    pub fn new(config: Config) -> Spotify<E> where
         E: FromImage<E>,
         E: FromImages<E>,
         E: FromSelectedIndex<E>,
@@ -79,7 +78,6 @@ impl<E: 'static> Spotify<E> {
         });
 
         Spotify {
-            config,
             in_sender,
             out_receiver,
         }
@@ -101,7 +99,7 @@ impl<E: 'static> Spotify<E> {
     }
 }
 
-async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
+async fn handle_spotify_task<E>(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
     E: FromImage<E>,
     E: FromImages<E>,
     E: FromSelectedIndex<E>,
@@ -167,7 +165,7 @@ async fn handle_spotify_task<E>(config: Arc<SpotifyAppConfig>, state: Arc<State>
     };
 }
 
-async fn pull_playlist_tracks(config: Arc<SpotifyAppConfig>, state: Arc<State>) {
+async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     let tracks = with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
         return client::playlists::get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await;
     }).await;
@@ -207,7 +205,7 @@ async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<
     };
 }
 
-async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, state: Arc<State>, f: F) -> Result<A, ()> where
+async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f: F) -> Result<A, ()> where
     F: Fn(String) -> Fut,
     Fut: Future<Output = Result<A, SpotifyError>>,
 {
@@ -233,7 +231,7 @@ async fn with_access_token<A, F, Fut>(config: Arc<SpotifyAppConfig>, state: Arc<
     };
 }
 
-async fn fetch_and_store_access_token(config: Arc<SpotifyAppConfig>, state: Arc<State>) ->  Result<String, ()> {
+async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->  Result<String, ()> {
     let token_response =  super::authorization::refresh_token(&config.authorization).await.unwrap();
     let mut new_token = state.access_token.lock().unwrap();
     *new_token = Some(token_response.access_token.clone());

@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 #[derive(Clone, Debug)]
-pub struct SpotifyAuthorizationConfig {
+pub struct Config {
     pub client_id: String,
     pub client_secret: String,
     pub refresh_token: Option<String>,
@@ -33,7 +33,7 @@ pub struct SpotifyTokenResponse {
     pub refresh_token: Option<String>,
 }
 
-pub fn login_sync(config: super::SpotifyAppConfig) -> Result<SpotifyTokenResponse, ()> {
+pub fn login_sync(config: Config) -> Result<SpotifyTokenResponse, ()> {
     let runtime = Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -42,7 +42,7 @@ pub fn login_sync(config: super::SpotifyAppConfig) -> Result<SpotifyTokenRespons
 
     let config = Arc::new(config);
     return runtime.block_on(runtime.spawn(async move {
-        let response = authorize(&config.authorization).await;
+        let response = authorize(&config).await;
         return match response {
             Ok(token) => Ok(token),
             Err(_) => {
@@ -53,7 +53,7 @@ pub fn login_sync(config: super::SpotifyAppConfig) -> Result<SpotifyTokenRespons
     })).unwrap();
 }
 
-pub async fn authorize(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, ()> {
+pub async fn authorize(config: &Config) -> Result<SpotifyTokenResponse, ()> {
     let _ = spawn_authorization_browser(config).await;
     let token_response = spawn_authorization_server(config).await;
 
@@ -63,7 +63,7 @@ pub async fn authorize(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTok
     };
 }
 
-pub async fn spawn_authorization_browser(config: &SpotifyAuthorizationConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn spawn_authorization_browser(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     println!("Spawning a browser!");
     let client_id = config.client_id.clone();
     let _ = tokio::task::spawn_blocking(move || {
@@ -72,7 +72,7 @@ pub async fn spawn_authorization_browser(config: &SpotifyAuthorizationConfig) ->
     return Ok(());
 }
 
-pub async fn spawn_authorization_server(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+pub async fn spawn_authorization_server(config: &Config) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     println!("Spawning a server!");
     let (tx, mut rx) = mpsc::channel::<String>(1usize);
     let (send, recv) = oneshot::channel::<String>();
@@ -103,7 +103,7 @@ pub async fn spawn_authorization_server(config: &SpotifyAuthorizationConfig) -> 
     return request_token(config, &code).await;
 }
 
-pub async fn request_token(config: &SpotifyAuthorizationConfig, code: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+pub async fn request_token(config: &Config, code: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let response = client.post("https://accounts.spotify.com/api/token")
         .headers(prepare_headers(config))
@@ -120,7 +120,7 @@ pub async fn request_token(config: &SpotifyAuthorizationConfig, code: &String) -
         .await?);
 }
 
-pub async fn refresh_token(config: &SpotifyAuthorizationConfig) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+pub async fn refresh_token(config: &Config) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     match &config.refresh_token {
         Some(token) => {
             let client = reqwest::Client::new();
@@ -144,7 +144,7 @@ pub async fn refresh_token(config: &SpotifyAuthorizationConfig) -> Result<Spotif
     }
 }
 
-fn prepare_headers(config: &SpotifyAuthorizationConfig) -> HeaderMap {
+fn prepare_headers(config: &Config) -> HeaderMap {
     let base64_authorization = encode(format!("{}:{}", config.client_id, config.client_secret));
     let mut headers = HeaderMap::new();
     headers.insert("Authorization", format!("Basic {}", base64_authorization).parse().unwrap());

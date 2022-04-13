@@ -4,7 +4,6 @@ pub mod app;
 pub mod client;
 
 pub mod authorization;
-pub use authorization::SpotifyAuthorizationConfig;
 
 #[derive(Debug)]
 pub enum Out<E> {
@@ -13,7 +12,7 @@ pub enum Out<E> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SpotifyAppConfig {
-    pub authorization: SpotifyAuthorizationConfig,
+pub struct Config {
+    pub authorization: authorization::Config,
     pub playlist_id: String,
 }

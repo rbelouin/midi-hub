@@ -12,7 +12,7 @@ mod server;
 
 enum Config {
     LoginConfig {
-        config: spotify::SpotifyAppConfig,
+        config: spotify::authorization::Config,
     },
     RunConfig {
         config: router::RunConfig,
@@ -49,14 +49,10 @@ fn args() -> Result<Config, String> {
         Some("login") => {
             return match &args[2..] {
                 [client_id, client_secret] => Ok(Config::LoginConfig {
-                    config: spotify::SpotifyAppConfig {
-                        authorization: spotify::authorization::SpotifyAuthorizationConfig {
-                            client_id: String::from(client_id),
-                            client_secret: String::from(client_secret),
-                            refresh_token: None,
-                        },
-                        // this is not needed to generate a refresh token
-                        playlist_id: "".to_string(),
+                    config: spotify::authorization::Config {
+                        client_id: String::from(client_id),
+                        client_secret: String::from(client_secret),
+                        refresh_token: None,
                     },
                 }),
                 _ => Err(String::from("Usage: ./midi-hub login <client-id> <client-secret>")),
@@ -66,19 +62,21 @@ fn args() -> Result<Config, String> {
             return match &args[2..] {
                 [client_id, client_secret, input_name, output_name, launchpad_name, playlist_id, token, youtube_api_key, youtube_playlist_id] => Ok(Config::RunConfig {
                     config: router::RunConfig {
-                        spotify_app_config: spotify::SpotifyAppConfig {
-                            authorization: spotify::authorization::SpotifyAuthorizationConfig {
+                        input_name: String::from(input_name),
+                        output_name: String::from(output_name),
+                        launchpad_name: String::from(launchpad_name),
+                        spotify_config: spotify::Config {
+                            authorization: spotify::authorization::Config {
                                 client_id: String::from(client_id),
                                 client_secret: String::from(client_secret),
                                 refresh_token: Some(String::from(token)),
                             },
                             playlist_id: String::from(playlist_id),
                         },
-                        input_name: String::from(input_name),
-                        output_name: String::from(output_name),
-                        launchpad_name: String::from(launchpad_name),
-                        youtube_api_key: String::from(youtube_api_key),
-                        youtube_playlist_id: String::from(youtube_playlist_id),
+                        youtube_config: youtube::Config {
+                            api_key: String::from(youtube_api_key),
+                            playlist_id: String::from(youtube_playlist_id),
+                        }
                     },
                 }),
                 _ => Err(String::from("Usage: ./midi-hub run <client-id> <client-secret> <input-name> <output-name> <launchpad-name> <playlist-id> <spotify-token> <youtube-api-key> <youtube-playlist-id>")),
