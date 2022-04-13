@@ -28,14 +28,14 @@ pub const COLOR: [u8; 3] = [255, 0, 0];
 
 const DELAY: Duration = Duration::from_millis(5_000);
 
-impl<E: 'static> App<Config, E, Out<E>> for Youtube<E> where
+impl<E: 'static> Youtube<E> where
     E: IntoIndex,
     E: FromImage<E>,
     E: Clone,
     E: std::fmt::Debug,
     E: std::marker::Send,
 {
-    fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let (in_sender, mut in_receiver) = mpsc::channel::<E>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out<E>>(32);
 
@@ -77,6 +77,15 @@ impl<E: 'static> App<Config, E, Out<E>> for Youtube<E> where
             out_receiver,
         }
     }
+}
+
+impl<E: 'static> App<E, Out<E>> for Youtube<E> where
+    E: IntoIndex,
+    E: FromImage<E>,
+    E: Clone,
+    E: std::fmt::Debug,
+    E: std::marker::Send,
+{
 
     fn get_name(&self) -> &'static str {
         return NAME;

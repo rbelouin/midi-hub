@@ -7,10 +7,7 @@ pub use crate::server::Command as ServerCommand;
 pub mod spotify;
 pub mod youtube;
 
-pub trait App<C, I, O> {
-    /// Only takes one config instance to instantiate itself
-    fn new(config: C) -> Self;
-
+pub trait App<I, O> {
     /// Exposing a name enables the router to log more meaningful information
     fn get_name(&self) -> &'static str;
 

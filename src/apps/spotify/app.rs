@@ -31,7 +31,7 @@ pub struct Spotify<E> {
     out_receiver: mpsc::Receiver<Out<E>>,
 }
 
-impl<E: 'static> App<Config, E, Out<E>> for Spotify<E> where
+impl<E: 'static> Spotify<E> where
     E: FromImage<E>,
     E: FromImages<E>,
     E: FromSelectedIndex<E>,
@@ -40,7 +40,7 @@ impl<E: 'static> App<Config, E, Out<E>> for Spotify<E> where
     E: std::fmt::Debug,
     E: std::marker::Send,
 {
-    fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
         let state = Arc::new(State {
             access_token: Mutex::new(None),
@@ -85,7 +85,17 @@ impl<E: 'static> App<Config, E, Out<E>> for Spotify<E> where
             out_receiver,
         }
     }
+}
 
+impl<E: 'static> App<E, Out<E>> for Spotify<E> where
+    E: FromImage<E>,
+    E: FromImages<E>,
+    E: FromSelectedIndex<E>,
+    E: IntoIndex,
+    E: Clone,
+    E: std::fmt::Debug,
+    E: std::marker::Send,
+{
     fn get_name(&self) -> &'static str {
         return NAME;
     }
