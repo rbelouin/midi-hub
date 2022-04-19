@@ -2,6 +2,9 @@ extern crate portmidi as pm;
 extern crate signal_hook as sh;
 
 use std::env;
+use std::fs;
+use std::path::PathBuf;
+use toml::value::Value;
 
 mod apps;
 mod image;
@@ -59,28 +62,26 @@ fn args() -> Result<Config, String> {
         },
         Some("run") => {
             return match &args[2..] {
-                [client_id, client_secret, input_name, output_name, launchpad_name, playlist_id, token, youtube_api_key, youtube_playlist_id] => Ok(Config::RunConfig {
-                    config: router::RunConfig {
-                        input_name: String::from(input_name),
-                        output_name: String::from(output_name),
-                        launchpad_name: String::from(launchpad_name),
-                        spotify_config: apps::spotify::Config {
-                            authorization: apps::spotify::authorization::Config {
-                                client_id: String::from(client_id),
-                                client_secret: String::from(client_secret),
-                                refresh_token: Some(String::from(token)),
-                            },
-                            playlist_id: String::from(playlist_id),
-                        },
-                        youtube_config: apps::youtube::Config {
-                            api_key: String::from(youtube_api_key),
-                            playlist_id: String::from(youtube_playlist_id),
-                        }
-                    },
-                }),
-                _ => Err(String::from("Usage: ./midi-hub run <client-id> <client-secret> <input-name> <output-name> <launchpad-name> <playlist-id> <spotify-token> <youtube-api-key> <youtube-playlist-id>")),
+                [] => read_config().map(|config| Config::RunConfig { config }),
+                _ => Err(String::from("Usage: ./midi-hub run")),
             };
         },
         _ => Err(String::from("Usage ./midi-hub [login|run] <args>")),
     };
+}
+
+fn read_config() -> Result<router::RunConfig, String> {
+    let mut config_file = std::env::var("XDG_CONFIG_HOME").map(|xdg_config_home| PathBuf::from(xdg_config_home))
+        .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_else(|_| PathBuf::from("."));
+
+    config_file.push("midi-hub");
+    config_file.push("config.toml");
+
+    let content = fs::read_to_string(config_file.clone())
+        .map_err(|err| format!("Could not find config.toml in {:?}: {:?}", config_file, err))?;
+    let config = content.parse::<Value>()
+        .and_then(|toml_value| toml_value.try_into())
+        .map_err(|err| format!("Could not parse config.toml: {:?}", err))?;
+    return Ok(config);
 }

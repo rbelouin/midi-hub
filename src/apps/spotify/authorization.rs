@@ -17,7 +17,7 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub client_id: String,
     pub client_secret: String,
