@@ -13,6 +13,70 @@ pub enum SpotifyError {
     Unknown,
 }
 
+pub mod authorization {
+    use base64::encode;
+    use reqwest::header::HeaderMap;
+    use serde::Deserialize;
+
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct SpotifyTokenResponse {
+        pub access_token: String,
+        pub token_type: String,
+        pub scope: Option<String>,
+        pub expires_in: i16,
+        pub refresh_token: Option<String>,
+    }
+
+    pub async fn request_token(
+        client_id: &String,
+        client_secret: &String,
+        code: &String,
+    ) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::new();
+        let response = client.post("https://accounts.spotify.com/api/token")
+            .headers(prepare_headers(client_id, client_secret))
+            .body(querystring::stringify(vec![
+                ("grant_type", "authorization_code"),
+                ("code", code),
+                ("redirect_uri", "http://localhost:12345/callback"),
+            ]))
+            .send()
+            .await?;
+
+        return Ok(response
+            .json::<SpotifyTokenResponse>()
+            .await?);
+    }
+
+    pub async fn refresh_token(
+        client_id: &String,
+        client_secret: &String,
+        refresh_token: &String,
+    ) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::new();
+        let response = client.post("https://accounts.spotify.com/api/token")
+            .headers(prepare_headers(client_id, client_secret))
+            .body(querystring::stringify(vec![
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token),
+            ]))
+            .send()
+            .await?;
+
+        return Ok(response
+            .json::<SpotifyTokenResponse>()
+            .await?);
+    }
+
+    fn prepare_headers(client_id: &String, client_secret: &String) -> HeaderMap {
+        let base64_authorization = encode(format!("{}:{}", client_id, client_secret));
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", format!("Basic {}", base64_authorization).parse().unwrap());
+        headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
+        return headers;
+    }
+}
+
 pub mod albums {
     use serde::Deserialize;
 

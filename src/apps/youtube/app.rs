@@ -9,7 +9,7 @@ use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
 use crate::midi::{FromImage, IntoIndex};
 
-use super::Config;
+use super::config::Config;
 use super::client;
 
 struct State {

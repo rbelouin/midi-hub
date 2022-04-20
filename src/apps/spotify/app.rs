@@ -9,7 +9,7 @@ use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
 use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
 
-use super::Config;
+use super::config::Config;
 use super::client;
 use super::client::SpotifyError;
 use super::client::tracks::SpotifyTrack;
@@ -265,7 +265,11 @@ async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f:
 }
 
 async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->  Result<String, ()> {
-    let token_response =  super::authorization::refresh_token(&config.authorization).await.unwrap();
+    let token_response =  client::authorization::refresh_token(
+        &config.client_id,
+        &config.client_secret,
+        &config.refresh_token
+    ).await.unwrap();
     let mut new_token = state.access_token.lock().unwrap();
     *new_token = Some(token_response.access_token.clone());
     return Ok(token_response.access_token.clone());

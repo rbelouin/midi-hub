@@ -12,31 +12,23 @@ mod midi;
 mod router;
 mod server;
 
-enum Config {
-    LoginConfig {
-        config: apps::spotify::authorization::Config,
-    },
-    RunConfig {
-        config: router::RunConfig,
-    },
+enum Command {
+    INIT,
+    RUN,
 }
 
 fn main() {
-    let result = args().and_then(|config| {
-        match config {
-            Config::LoginConfig { config } => {
-                return apps::spotify::authorization::login_sync(config.clone()).and_then(|token| token.refresh_token.ok_or(()))
-                    .map(|refresh_token| {
-                        println!("Please use this refresh token to start the service: {:?}", refresh_token);
-                        return ();
-                    })
-                    .map_err(|()| String::from("Could not log in"));
-            },
-            Config::RunConfig { config } => {
-                let mut router = router::Router::new(config);
-                router.run().map_err(|err| format!("{}", err))
-            }
-        }
+    let result = get_command().and_then(|command| match command {
+        Command::INIT => init_config().map_err(|err| format!("{}", err))
+            .and_then(|config| toml::to_string(&config).map_err(|err| format!("{}", err)))
+            .map(|config| {
+                println!("You can copy/paste the following to your config.toml:\n");
+                println!("{}", config)
+            }),
+        Command::RUN => read_config().and_then(|config| {
+            let mut router = router::Router::new(config);
+            router.run().map_err(|err| format!("{}", err))
+        }),
     });
 
     match result {
@@ -45,29 +37,46 @@ fn main() {
     }
 }
 
-fn args() -> Result<Config, String> {
-    let args: Vec<String> = env::args().collect();
-    return match args.get(1).map(|s| s.as_str()) {
-        Some("login") => {
-            return match &args[2..] {
-                [client_id, client_secret] => Ok(Config::LoginConfig {
-                    config: apps::spotify::authorization::Config {
-                        client_id: String::from(client_id),
-                        client_secret: String::from(client_secret),
-                        refresh_token: None,
-                    },
-                }),
-                _ => Err(String::from("Usage: ./midi-hub login <client-id> <client-secret>")),
-            };
-        },
-        Some("run") => {
-            return match &args[2..] {
-                [] => read_config().map(|config| Config::RunConfig { config }),
-                _ => Err(String::from("Usage: ./midi-hub run")),
-            };
-        },
-        _ => Err(String::from("Usage ./midi-hub [login|run] <args>")),
-    };
+fn get_command() -> Result<Command, String> {
+    let args = env::args().collect::<Vec<String>>();
+    let command = args.get(1).filter(|_| args.len() == 2);
+    return match command.map(|s| s.as_str()) {
+        Some("init") => Ok(Command::INIT),
+        Some("run") => Ok(Command::RUN),
+        _ => Err(String::from("Usage: ./midi-hub [init|run]")),
+    }
+}
+
+fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
+    let mut input_name = String::new();
+    let mut output_name = String::new();
+    let mut launchpad_name = String::new();
+    
+    println!("[midi] please enter the name of the device you want to use as an input when forwarding events:");
+    std::io::stdin().read_line(&mut input_name)?;
+    let input_name = input_name.trim().to_string();
+    println!("");
+    
+    println!("[midi] please enter the name of the device you want to use as an output when forwarding events:");
+    std::io::stdin().read_line(&mut output_name)?;
+    let output_name = output_name.trim().to_string();
+    println!("");
+    
+    println!("[midi] please enter the name of the launchpad pro to use with the spotify and youtube apps:");
+    std::io::stdin().read_line(&mut launchpad_name)?;
+    let launchpad_name = launchpad_name.trim().to_string();
+    println!("");
+
+    let spotify = apps::spotify::config::configure()?;
+    let youtube = apps::youtube::config::configure()?;
+
+    return Ok(router::RunConfig {
+        input_name,
+        output_name,
+        launchpad_name,
+        spotify,
+        youtube,
+    });
 }
 
 fn read_config() -> Result<router::RunConfig, String> {
