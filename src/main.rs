@@ -2,6 +2,9 @@ extern crate portmidi as pm;
 extern crate signal_hook as sh;
 
 use std::env;
+use std::fs;
+use std::path::PathBuf;
+use toml::value::Value;
 
 mod apps;
 mod image;
@@ -9,31 +12,23 @@ mod midi;
 mod router;
 mod server;
 
-enum Config {
-    LoginConfig {
-        config: apps::spotify::authorization::Config,
-    },
-    RunConfig {
-        config: router::RunConfig,
-    },
+enum Command {
+    INIT,
+    RUN,
 }
 
 fn main() {
-    let result = args().and_then(|config| {
-        match config {
-            Config::LoginConfig { config } => {
-                return apps::spotify::authorization::login_sync(config.clone()).and_then(|token| token.refresh_token.ok_or(()))
-                    .map(|refresh_token| {
-                        println!("Please use this refresh token to start the service: {:?}", refresh_token);
-                        return ();
-                    })
-                    .map_err(|()| String::from("Could not log in"));
-            },
-            Config::RunConfig { config } => {
-                let mut router = router::Router::new(config);
-                router.run().map_err(|err| format!("{}", err))
-            }
-        }
+    let result = get_command().and_then(|command| match command {
+        Command::INIT => init_config().map_err(|err| format!("{}", err))
+            .and_then(|config| toml::to_string(&config).map_err(|err| format!("{}", err)))
+            .map(|config| {
+                println!("You can copy/paste the following to your config.toml:\n");
+                println!("{}", config)
+            }),
+        Command::RUN => read_config().and_then(|config| {
+            let mut router = router::Router::new(config);
+            router.run().map_err(|err| format!("{}", err))
+        }),
     });
 
     match result {
@@ -42,45 +37,60 @@ fn main() {
     }
 }
 
-fn args() -> Result<Config, String> {
-    let args: Vec<String> = env::args().collect();
-    return match args.get(1).map(|s| s.as_str()) {
-        Some("login") => {
-            return match &args[2..] {
-                [client_id, client_secret] => Ok(Config::LoginConfig {
-                    config: apps::spotify::authorization::Config {
-                        client_id: String::from(client_id),
-                        client_secret: String::from(client_secret),
-                        refresh_token: None,
-                    },
-                }),
-                _ => Err(String::from("Usage: ./midi-hub login <client-id> <client-secret>")),
-            };
-        },
-        Some("run") => {
-            return match &args[2..] {
-                [client_id, client_secret, input_name, output_name, launchpad_name, playlist_id, token, youtube_api_key, youtube_playlist_id] => Ok(Config::RunConfig {
-                    config: router::RunConfig {
-                        input_name: String::from(input_name),
-                        output_name: String::from(output_name),
-                        launchpad_name: String::from(launchpad_name),
-                        spotify_config: apps::spotify::Config {
-                            authorization: apps::spotify::authorization::Config {
-                                client_id: String::from(client_id),
-                                client_secret: String::from(client_secret),
-                                refresh_token: Some(String::from(token)),
-                            },
-                            playlist_id: String::from(playlist_id),
-                        },
-                        youtube_config: apps::youtube::Config {
-                            api_key: String::from(youtube_api_key),
-                            playlist_id: String::from(youtube_playlist_id),
-                        }
-                    },
-                }),
-                _ => Err(String::from("Usage: ./midi-hub run <client-id> <client-secret> <input-name> <output-name> <launchpad-name> <playlist-id> <spotify-token> <youtube-api-key> <youtube-playlist-id>")),
-            };
-        },
-        _ => Err(String::from("Usage ./midi-hub [login|run] <args>")),
-    };
+fn get_command() -> Result<Command, String> {
+    let args = env::args().collect::<Vec<String>>();
+    let command = args.get(1).filter(|_| args.len() == 2);
+    return match command.map(|s| s.as_str()) {
+        Some("init") => Ok(Command::INIT),
+        Some("run") => Ok(Command::RUN),
+        _ => Err(String::from("Usage: ./midi-hub [init|run]")),
+    }
+}
+
+fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
+    let mut input_name = String::new();
+    let mut output_name = String::new();
+    let mut launchpad_name = String::new();
+    
+    println!("[midi] please enter the name of the device you want to use as an input when forwarding events:");
+    std::io::stdin().read_line(&mut input_name)?;
+    let input_name = input_name.trim().to_string();
+    println!("");
+    
+    println!("[midi] please enter the name of the device you want to use as an output when forwarding events:");
+    std::io::stdin().read_line(&mut output_name)?;
+    let output_name = output_name.trim().to_string();
+    println!("");
+    
+    println!("[midi] please enter the name of the launchpad pro to use with the spotify and youtube apps:");
+    std::io::stdin().read_line(&mut launchpad_name)?;
+    let launchpad_name = launchpad_name.trim().to_string();
+    println!("");
+
+    let spotify = apps::spotify::config::configure()?;
+    let youtube = apps::youtube::config::configure()?;
+
+    return Ok(router::RunConfig {
+        input_name,
+        output_name,
+        launchpad_name,
+        spotify,
+        youtube,
+    });
+}
+
+fn read_config() -> Result<router::RunConfig, String> {
+    let mut config_file = std::env::var("XDG_CONFIG_HOME").map(|xdg_config_home| PathBuf::from(xdg_config_home))
+        .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_else(|_| PathBuf::from("."));
+
+    config_file.push("midi-hub");
+    config_file.push("config.toml");
+
+    let content = fs::read_to_string(config_file.clone())
+        .map_err(|err| format!("Could not find config.toml in {:?}: {:?}", config_file, err))?;
+    let config = content.parse::<Value>()
+        .and_then(|toml_value| toml_value.try_into())
+        .map_err(|err| format!("Could not parse config.toml: {:?}", err))?;
+    return Ok(config);
 }

@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::{Serialize, Deserialize};
+
 use crate::apps;
 use crate::apps::{App, Out};
 use crate::midi;
@@ -15,12 +17,13 @@ use crate::server::HttpServer;
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+#[derive(Serialize, Deserialize)]
 pub struct RunConfig {
     pub input_name: String,
     pub output_name: String,
     pub launchpad_name: String,
-    pub spotify_config: apps::spotify::Config,
-    pub youtube_config: apps::youtube::Config,
+    pub spotify: apps::spotify::config::Config,
+    pub youtube: apps::youtube::config::Config,
 }
 
 pub struct Router {
@@ -36,8 +39,8 @@ impl Router {
         let term = Arc::new(AtomicBool::new(false));
 
         let server = HttpServer::start();
-        let spotify_app = apps::spotify::app::Spotify::new(config.spotify_config.clone());
-        let youtube_app = apps::youtube::app::Youtube::new(config.youtube_config.clone());
+        let spotify_app = apps::spotify::app::Spotify::new(config.spotify.clone());
+        let youtube_app = apps::youtube::app::Youtube::new(config.youtube.clone());
 
         return Router {
             config,
