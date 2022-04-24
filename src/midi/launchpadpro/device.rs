@@ -1,35 +1,41 @@
 use std::convert::From;
-use crate::midi::{InputPort, OutputPort, Reader, Writer, Error};
+use crate::midi::{Reader, Writer, Error, Event};
 use super::LaunchpadProEvent;
 
-pub struct LaunchpadPro<'a> {
-    device: (InputPort<'a>, OutputPort<'a>),
+pub struct LaunchpadPro<C> where
+    C: Reader<Event>,
+    C: Writer<Event>,
+{
+    pub connection: C,
 }
 
-impl<'a> From<(InputPort<'a>, OutputPort<'a>)> for LaunchpadPro<'a> {
-    fn from(ports: (InputPort<'a>, OutputPort<'a>)) -> LaunchpadPro<'a> {
-        return LaunchpadPro { device: ports };
+impl<C> From<C> for LaunchpadPro<C> where
+    C: Reader<Event>,
+    C: Writer<Event>,
+{
+    fn from(connection: C) -> LaunchpadPro<C> {
+        return LaunchpadPro { connection };
     }
 }
 
-impl<'a> From<LaunchpadPro<'a>> for (InputPort<'a>, OutputPort<'a>) {
-    fn from(launchpadpro: LaunchpadPro<'a>) -> (InputPort<'a>, OutputPort<'a>) {
-        return launchpadpro.device;
-    }
-}
-
-impl Reader<LaunchpadProEvent> for LaunchpadPro<'_> {
+impl<C> Reader<LaunchpadProEvent> for LaunchpadPro<C> where
+    C: Reader<Event>,
+    C: Writer<Event>,
+{
     fn read_midi(&mut self) -> Result<Option<[u8; 4]>, Error> {
-        return Reader::read_midi(&mut self.device);
+        return Reader::read_midi(&mut self.connection);
     }
 }
 
-impl Writer<LaunchpadProEvent> for LaunchpadPro<'_> {
+impl<C> Writer<LaunchpadProEvent> for LaunchpadPro<C> where
+    C: Reader<Event>,
+    C: Writer<Event>,
+{
     fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error> {
-        return Writer::write_midi(&mut self.device, event);
+        return Writer::write_midi(&mut self.connection, event);
     }
 
     fn write_sysex(&mut self, event: &[u8]) -> Result<(), Error> {
-        return Writer::write_sysex(&mut self.device, event);
+        return Writer::write_sysex(&mut self.connection, event);
     }
 }

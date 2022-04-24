@@ -1,10 +1,10 @@
 use std::convert::{From, Into};
 
 extern crate portmidi;
-use portmidi::{MidiEvent, MidiMessage};
+use portmidi::{InputPort, OutputPort, MidiEvent, MidiMessage};
 
 use crate::image::Image;
-use super::{Error, InputPort, OutputPort};
+use super::Error;
 
 #[derive(Clone, Debug)]
 pub enum Event {

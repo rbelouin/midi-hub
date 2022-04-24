@@ -2,7 +2,7 @@ mod connections;
 mod device;
 mod error;
 
-pub use connections::{Connections, InputPort, OutputPort};
+pub use connections::Connections;
 pub use device::*;
 pub use error::Error;
 
