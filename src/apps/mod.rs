@@ -4,6 +4,7 @@ use tokio::sync::mpsc::error::{SendError, TryRecvError};
 use crate::image::Image;
 pub use crate::server::Command as ServerCommand;
 
+pub mod forward;
 pub mod spotify;
 pub mod youtube;
 
