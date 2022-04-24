@@ -22,6 +22,7 @@ pub struct RunConfig {
     pub input_name: String,
     pub output_name: String,
     pub launchpad_name: String,
+    pub forward: apps::forward::config::Config,
     pub spotify: apps::spotify::config::Config,
     pub youtube: apps::youtube::config::Config,
 }
@@ -30,6 +31,7 @@ pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
     server: HttpServer,
+    forward_app: Box<dyn App<Event, Out<Event>>>,
     apps: Vec<Box<dyn App<LaunchpadProEvent, Out<LaunchpadProEvent>>>>,
     selected_app: usize,
 }
@@ -39,6 +41,7 @@ impl Router {
         let term = Arc::new(AtomicBool::new(false));
 
         let server = HttpServer::start();
+        let forward_app = apps::forward::app::Forward::new(config.forward.clone());
         let spotify_app = apps::spotify::app::Spotify::new(config.spotify.clone());
         let youtube_app = apps::youtube::app::Youtube::new(config.youtube.clone());
 
@@ -46,6 +49,8 @@ impl Router {
             config,
             term,
             server,
+            // The forward app is not an app you can access via app selection yet
+            forward_app: Box::new(forward_app),
             apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
             selected_app: 0,
         };
@@ -72,16 +77,31 @@ impl Router {
             let mut result = Ok(());
 
             while !self.term.load(Ordering::Relaxed) && result.is_ok() && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL {
-                let forward_result = match (input.as_mut(), output.as_mut()) {
-                    (Ok(i), Ok(o)) => match i.read_midi() {
-                        Ok(Some(e)) => {
-                            println!("MIDI event: {:?}", e);
-                            o.write(Event::Midi(e))
-                        },
-                        _ => Ok(()),
+                let input_result = match input.as_mut() {
+                    Ok(input) => {
+                        match Reader::read(input) {
+                            Ok(Some(event)) => self.forward_app.send(event),
+                            _  => Ok(()),
+                        }
                     },
-                    (Err(e), _) => Err(*e),
-                    (_, Err(e)) => Err(*e),
+                    _ => Ok(()),
+                };
+
+                let output_result = match output.as_mut() {
+                    Ok(output) => {
+                        let event = self.forward_app.receive();
+                        match event {
+                            Ok(Out::Server(command)) => {
+                                self.server.send(command);
+                                Ok(())
+                            },
+                            Ok(Out::Event(event)) => {
+                                output.write(event)
+                            },
+                            _ => Ok(()),
+                        }
+                    },
+                    _ => Ok(()),
                 };
 
                 let launchpad_result = match launchpad.as_mut() {
@@ -136,7 +156,7 @@ impl Router {
                     Err(e) => Err(*e),
                 };
 
-                result = forward_result.or(launchpad_result);
+                result = input_result.or(output_result).or(launchpad_result);
                 match result {
                     Ok(_) => thread::sleep(MIDI_EVENT_POLL_INTERVAL),
                     _ => thread::sleep(MIDI_DEVICE_POLL_INTERVAL),

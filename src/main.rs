@@ -67,6 +67,7 @@ fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
     let launchpad_name = launchpad_name.trim().to_string();
     println!("");
 
+    let forward = apps::forward::config::configure()?;
     let spotify = apps::spotify::config::configure()?;
     let youtube = apps::youtube::config::configure()?;
 
@@ -74,6 +75,7 @@ fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
         input_name,
         output_name,
         launchpad_name,
+        forward,
         spotify,
         youtube,
     });
