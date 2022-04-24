@@ -1,5 +1,6 @@
 extern crate signal_hook as sh;
 
+use std::convert::From;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -10,28 +11,24 @@ use serde::{Serialize, Deserialize};
 use crate::apps;
 use crate::apps::{App, Out};
 use crate::midi;
-use midi::{InputOutputConnection, Connections, Error, Reader, Writer, EventTransformer};
+use midi::{Connections, Error, Reader, Writer, Devices};
 use crate::server::HttpServer;
-
-type LaunchpadPro<'a> = midi::launchpadpro::LaunchpadPro<InputOutputConnection<'a>>;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Serialize, Deserialize)]
 pub struct RunConfig {
-    pub input_name: String,
-    pub output_name: String,
-    pub launchpad_name: String,
+    pub devices: midi::devices::config::Config,
     pub forward: apps::forward::config::Config,
     pub spotify: apps::spotify::config::Config,
     pub youtube: apps::youtube::config::Config,
 }
 
 pub struct Router {
-    config: RunConfig,
     term: Arc<AtomicBool>,
     server: HttpServer,
+    devices: Devices,
     forward_app: Box<dyn App>,
     apps: Vec<Box<dyn App>>,
     selected_app: usize,
@@ -42,22 +39,34 @@ impl Router {
         let term = Arc::new(AtomicBool::new(false));
 
         let server = HttpServer::start();
-        let forward_app = apps::forward::app::Forward::new(config.forward.clone());
+
+        let devices = Devices::from(&config.devices);
+        let input = devices.get("input").expect("input device should be defined");
+        let output = devices.get("output").expect("output device should be defined");
+        let launchpad = devices.get("launchpad").expect("launchpad device should be defined");
+
+        let forward_app = apps::forward::app::Forward::new(
+            config.forward.clone(),
+            input.transformer,
+            output.transformer,
+        );
+
         let spotify_app = apps::spotify::app::Spotify::new(
             config.spotify.clone(),
-            LaunchpadPro::transformer(),
-            LaunchpadPro::transformer(),
+            launchpad.transformer,
+            launchpad.transformer,
         );
+
         let youtube_app = apps::youtube::app::Youtube::new(
             config.youtube.clone(),
-            LaunchpadPro::transformer(),
-            LaunchpadPro::transformer(),
+            launchpad.transformer,
+            launchpad.transformer,
         );
 
         return Router {
-            config,
             term,
             server,
+            devices,
             // The forward app is not an app you can access via app selection yet
             forward_app: Box::new(forward_app),
             apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
@@ -78,22 +87,23 @@ impl Router {
 
     fn run_one_cycle(&mut self, start: Instant) -> Result<(), Error> {
         return Connections::new().and_then(|connections| {
-            let mut input = connections.create_input_port(&self.config.input_name);
-            let mut output = connections.create_output_port(&self.config.output_name);
-            let mut launchpad = connections.create_bidirectional_ports(&self.config.launchpad_name)
-                .map(|ports| LaunchpadPro::from(ports));
+            let mut input = self.devices.get_port("input", &connections);
+            let mut output = self.devices.get_port("output", &connections);
+            let mut launchpad = self.devices.get_port("launchpad", &connections);
 
             let mut result = Ok(());
 
             while !self.term.load(Ordering::Relaxed) && result.is_ok() && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL {
                 let input_result = match input.as_mut() {
                     Ok(input) => {
-                        match Reader::read(input) {
+                        match Reader::read(&mut input.port) {
                             Ok(Some(event)) => self.forward_app.send(event),
                             _  => Ok(()),
                         }
                     },
-                    _ => Ok(()),
+                    _ => {
+                        Ok(())
+                    },
                 };
 
                 let output_result = match output.as_mut() {
@@ -105,19 +115,21 @@ impl Router {
                                 Ok(())
                             },
                             Ok(Out::Midi(event)) => {
-                                output.write(event)
+                                output.port.write(event)
                             },
                             _ => Ok(()),
                         }
                     },
-                    _ => Ok(()),
+                    _ => {
+                        Ok(())
+                    }
                 };
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
                         let _ = launchpad.transformer.from_app_colors(
                             self.apps.iter().map(|app| app.get_color()).collect()
-                        ).and_then(|event| launchpad.write(event));
+                        ).and_then(|event| launchpad.port.write(event));
 
                         if self.apps.len() > self.selected_app {
                             let event = self.apps[self.selected_app].receive();
@@ -126,13 +138,13 @@ impl Router {
                                     let _ = self.server.send(command);
                                 },
                                 Ok(Out::Midi(event)) => {
-                                    let _ = launchpad.write(event);
+                                    let _ = launchpad.port.write(event);
                                 },
                                 _ => {},
                             }
                         }
 
-                        match launchpad.read() {
+                        match launchpad.port.read() {
                             Ok(Some(event)) => {
                                 let selected_app = launchpad.transformer.into_app_index(event.clone()).ok().flatten()
                                     .and_then(|app_index| {
@@ -147,7 +159,7 @@ impl Router {
                                     Some(selected_app) => {
                                         println!("Selecting {}", selected_app.get_name());
                                         let _ = launchpad.transformer.from_image(selected_app.get_logo())
-                                            .and_then(|event| launchpad.write(event));
+                                            .and_then(|event| launchpad.port.write(event));
                                     },
                                     _ => {
                                         match self.apps.get(self.selected_app) {
@@ -162,7 +174,10 @@ impl Router {
                             _ => Ok(()),
                         }
                     },
-                    Err(e) => Err(*e),
+                    Err(e) => {
+                        eprintln!("Error with launchpad: {}", e);
+                        Err(*e)
+                    },
                 };
 
                 result = input_result.or(output_result).or(launchpad_result);

@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 
 use crate::apps::{App, Out};
 use crate::image::Image;
-use crate::midi::Event;
+use crate::midi::{Event, EventTransformer};
 
 use super::config::Config;
 
@@ -15,7 +15,11 @@ pub const NAME: &'static str = "forward";
 pub const COLOR: [u8; 3] = [0, 0, 255];
 
 impl Forward {
-    pub fn new(_config: Config) -> Self {
+    pub fn new(
+        _config: Config,
+        _input_transformer: &'static (dyn EventTransformer + Sync),
+        _output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Self {
         let (sender, receiver) = mpsc::channel::<Event>(32);
 
         Forward {

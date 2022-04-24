@@ -4,6 +4,7 @@ mod image;
 mod index;
 
 pub use device::LaunchpadPro;
+pub use device::transformer;
 
 #[cfg(test)]
 mod test {

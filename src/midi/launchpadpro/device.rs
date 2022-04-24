@@ -7,12 +7,6 @@ pub struct LaunchpadPro<C> where C: Reader + Writer {
     pub transformer: &'static LaunchpadProEventTransformer,
 }
 
-impl<C> LaunchpadPro<C> where C: Reader + Writer {
-    pub fn transformer() -> &'static LaunchpadProEventTransformer {
-        return &LAUNCHPADPRO_EVENT_TRANSFORMER;
-    }
-}
-
 impl<C> From<C> for LaunchpadPro<C> where C: Reader + Writer {
     fn from(connection: C) -> LaunchpadPro<C> {
         return LaunchpadPro { connection, transformer: &LAUNCHPADPRO_EVENT_TRANSFORMER };
@@ -33,6 +27,10 @@ impl<C> Writer for LaunchpadPro<C> where C: Reader + Writer {
     fn write_sysex(&mut self, event: &[u8]) -> Result<(), Error> {
         return Writer::write_sysex(&mut self.connection, event);
     }
+}
+
+pub fn transformer() -> &'static LaunchpadProEventTransformer {
+    return &LAUNCHPADPRO_EVENT_TRANSFORMER;
 }
 
 static LAUNCHPADPRO_EVENT_TRANSFORMER: LaunchpadProEventTransformer = LaunchpadProEventTransformer::new();

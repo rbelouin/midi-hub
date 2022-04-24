@@ -6,8 +6,6 @@ pub use portmidi::{InputPort, OutputPort};
 
 use super::error::Error;
 
-pub type InputOutputConnection<'a> = (InputPort<'a>, OutputPort<'a>);
-
 /// The buffer size is quite arbitrary
 const BUFFER_SIZE: usize = 1024;
 
