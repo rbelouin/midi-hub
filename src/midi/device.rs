@@ -3,12 +3,73 @@ use std::convert::{From, Into};
 extern crate portmidi;
 use portmidi::{MidiEvent, MidiMessage};
 
+use crate::image::Image;
 use super::{Error, InputPort, OutputPort};
 
 #[derive(Clone, Debug)]
 pub enum Event {
     Midi([u8; 4]),
     SysEx(Vec<u8>),
+}
+
+pub trait RichEvent<E>: Clone + std::fmt::Debug + std::marker::Send where {
+    /// Event that can be converted into an unsigned integer,
+    /// that can be used to access elements of an indexed collections.
+    fn into_index(self) -> Result<Option<u16>, Error>;
+
+    /// Event that can be converted into an unsigned integer,
+    /// that can be used to select a midi-hub application.
+    fn into_app_index(self) -> Result<Option<u16>, Error>;
+
+    /// Event that can be constructed from image data,
+    /// so that MIDI devices that support it can render it.
+    fn from_image(image: Image) -> Result<E, Error>;
+
+    /// Event that can be constructed from an unsigned index,
+    /// so that the corresponding button, square pad, note… can be highlighted.
+    fn from_index_to_highlight(index: u16) -> Result<E, Error>;
+
+    /// Event that can be constructed from a collection of colors,
+    /// so that the buttons, square pads… used for app selection can be colored accordingly.
+    fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<E, Error>;
+}
+
+impl RichEvent<Event> for Event {
+    fn into_index(self) ->  Result<Option<u16>, Error> {
+        return match self {
+            // filter "note down" events, for notes higher than C2 (36), and with a strictly positive velocity
+            Event::Midi([144, data1, data2, _]) if data1 >= 36 && data2 > 0 => {
+                Ok(Some((data1 - 36).into()))
+            },
+            _ => Ok(None),
+        };
+    }
+
+    fn into_app_index(self) -> Result<Option<u16>, Error> {
+        return match self {
+            // filter "note down" events, for notes strictly lower than C0 (12),
+            // and with a strictly positive velocity
+            Event::Midi([144, data1, data2, _]) if data1 < 12 && data2 > 0 => {
+                Ok(Some(data1.into()))
+            },
+            _ => Ok(None),
+        }
+    }
+
+    fn from_image(_image: Image) -> Result<Event, Error> {
+        eprintln!("[midi] rendering an image is not supported by default");
+        return Err(Error::Unsupported);
+    }
+
+    fn from_index_to_highlight(_index: u16) -> Result<Event, Error> {
+        eprintln!("[midi] highlighting an index is not supported by default");
+        return Err(Error::Unsupported);
+    }
+
+    fn from_app_colors(_app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
+        eprintln!("[midi] coloring app selection buttons is not supported by default");
+        return Err(Error::Unsupported);
+    }
 }
 
 /// MIDI Device that is able to emit MIDI events

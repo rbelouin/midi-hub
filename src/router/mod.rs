@@ -10,7 +10,7 @@ use serde::{Serialize, Deserialize};
 use crate::apps;
 use crate::apps::{App, Out};
 use crate::midi;
-use midi::{Connections, Error, Event, Reader, Writer, IntoAppIndex, FromImage, FromAppColors};
+use midi::{Connections, Error, Event, Reader, Writer, RichEvent};
 use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
 use crate::server::HttpServer;
 

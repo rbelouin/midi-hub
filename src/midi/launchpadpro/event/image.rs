@@ -1,29 +1,14 @@
 use crate::image::{Image, scale};
-use crate::midi::{FromImage, FromImages, Error, Event};
+use crate::midi::{Error, Event};
 use super::LaunchpadProEvent;
 
 const WIDTH: usize = 8;
 const HEIGHT: usize = 8;
 const SIZE: usize = WIDTH * HEIGHT;
 
-impl FromImage<LaunchpadProEvent> for LaunchpadProEvent {
-    fn from_image(image: Image) -> Result<Self, Error> {
-        let scaled_image = scale(&image, WIDTH, HEIGHT).map_err(|_| Error::ImageRenderError)?;
-        return render_24bit_image_reversed(scaled_image.bytes);
-    }
-}
-
-impl FromImages<LaunchpadProEvent> for LaunchpadProEvent {
-    fn from_images(images: Vec<Image>) -> Result<Self, Error> {
-        return match images.len() {
-            1 => render_one_image(&images[0]),
-            SIZE => render_one_image_per_pad(&images),
-            _ => {
-                println!("[launchpadpro] unsupported number of images: {}", images.len());
-                return Err(Error::ImageRenderError);
-            },
-        }
-    }
+pub fn from_image(image: Image) -> Result<LaunchpadProEvent, Error> {
+    let scaled_image = scale(&image, WIDTH, HEIGHT).map_err(|_| Error::ImageRenderError)?;
+    return render_24bit_image_reversed(scaled_image.bytes);
 }
 
 fn render_one_image(image: &Image) -> Result<LaunchpadProEvent, Error> {

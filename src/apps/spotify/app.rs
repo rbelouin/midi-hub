@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
+use crate::midi::RichEvent;
 
 use super::config::Config;
 use super::client;
@@ -31,15 +31,7 @@ pub struct Spotify<E> {
     out_receiver: mpsc::Receiver<Out<E>>,
 }
 
-impl<E: 'static> Spotify<E> where
-    E: FromImage<E>,
-    E: FromImages<E>,
-    E: FromSelectedIndex<E>,
-    E: IntoIndex,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
+impl<E: 'static> Spotify<E> where E: RichEvent<E> {
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
         let state = Arc::new(State {
@@ -87,15 +79,7 @@ impl<E: 'static> Spotify<E> where
     }
 }
 
-impl<E: 'static> App<E, Out<E>> for Spotify<E> where
-    E: FromImage<E>,
-    E: FromImages<E>,
-    E: FromSelectedIndex<E>,
-    E: IntoIndex,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
+impl<E: 'static> App<E, Out<E>> for Spotify<E> where E: RichEvent<E> {
     fn get_name(&self) -> &'static str {
         return NAME;
     }
@@ -132,13 +116,7 @@ impl<E: 'static> App<E, Out<E>> for Spotify<E> where
     }
 }
 
-async fn handle_spotify_task<E>(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
-    E: FromImage<E>,
-    E: FromImages<E>,
-    E: FromSelectedIndex<E>,
-    E: IntoIndex,
-    E: std::fmt::Debug,
-{
+async fn handle_spotify_task<E>(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where E: RichEvent<E> {
     let _ = match event_in.into_index() {
         Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
             {
@@ -212,11 +190,7 @@ async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     }
 }
 
-async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>) where
-    E: FromImage<E>,
-    E: FromSelectedIndex<E>,
-    E: std::fmt::Debug,
-{
+async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>) where E: RichEvent<E> {
     match E::from_image(get_spotify_logo()) {
         Err(_) => println!("[Spotify] could not render the spotify logo"),
         Ok(event) => {
@@ -226,7 +200,7 @@ async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<
 
     let playing = state.playing.lock().unwrap().clone();
     match playing {
-        Some(index) => match E::from_selected_index(index) {
+        Some(index) => match E::from_index_to_highlight(index) {
             Ok(event) => {
                 let _ = sender.send(Out::Event(event)).await;
             },

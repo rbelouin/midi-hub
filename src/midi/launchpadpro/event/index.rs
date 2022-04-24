@@ -1,85 +1,77 @@
-use crate::midi::{Event, Error, IntoIndex, IntoAppIndex, FromSelectedIndex, FromAppColors};
+use crate::midi::{Event, Error};
 use super::LaunchpadProEvent;
 
-impl IntoIndex for LaunchpadProEvent {
-    fn into_index(self) ->  Result<Option<u16>, Error> {
-        return Ok(match self.event {
-            // event must be a "note down" with a strictly positive velocity
-            Event::Midi([144, data1, data2, _]) if data2 > 0 => {
-                // the device provides a 10x10 grid if you count the buttons on the sides
-                let row = data1 / 10;
-                let column  = data1 % 10;
+pub fn into_index(event: LaunchpadProEvent) ->  Result<Option<u16>, Error> {
+    return Ok(match event.into() {
+        // event must be a "note down" with a strictly positive velocity
+        Event::Midi([144, data1, data2, _]) if data2 > 0 => {
+            // the device provides a 10x10 grid if you count the buttons on the sides
+            let row = data1 / 10;
+            let column  = data1 % 10;
 
-                // but in this implementation, we’ll only focus on the central 8x8 grid
-                if row >= 1 && row <= 8 && column >= 1 && column <= 8 {
-                    Some((row - 1) * 8 + (column - 1)).map(|index| index.into())
-                } else {
-                    None
-                }
-            },
-            _ => None,
-        });
-    }
+            // but in this implementation, we’ll only focus on the central 8x8 grid
+            if row >= 1 && row <= 8 && column >= 1 && column <= 8 {
+                Some((row - 1) * 8 + (column - 1)).map(|index| index.into())
+            } else {
+                None
+            }
+        },
+        _ => None,
+    });
 }
 
-impl IntoAppIndex for LaunchpadProEvent {
-    fn into_app_index(self) ->  Result<Option<u16>, Error> {
-        return Ok(match self.event {
-            // event must be a "note down" with a strictly positive velocity
-            Event::Midi([176, data1, data2, _]) if data2 > 0 => {
-                // the device provides a 10x10 grid if you count the buttons on the sides
-                let row = data1 / 10;
-                let column  = data1 % 10;
+pub fn into_app_index(event: LaunchpadProEvent) ->  Result<Option<u16>, Error> {
+    return Ok(match event.into() {
+        // event must be a "note down" with a strictly positive velocity
+        Event::Midi([176, data1, data2, _]) if data2 > 0 => {
+            // the device provides a 10x10 grid if you count the buttons on the sides
+            let row = data1 / 10;
+            let column  = data1 % 10;
 
-                // we’ll use the last column on the right to select applications
-                if row >= 1 && row <= 8 && column == 9 {
-                    Some(8 - row).map(|index| index.into())
-                } else {
-                    None
-                }
-            },
-            _ => None,
-        });
-    }
+            // we’ll use the last column on the right to select applications
+            if row >= 1 && row <= 8 && column == 9 {
+                Some(8 - row).map(|index| index.into())
+            } else {
+                None
+            }
+        },
+        _ => None,
+    });
 }
 
-impl FromSelectedIndex<LaunchpadProEvent> for LaunchpadProEvent {
-    fn from_selected_index(index: u16) -> Result<LaunchpadProEvent, Error> {
-        if index > 63 {
-            return Err(Error::OutOfBoundIndexError);
-        }
-
-        let index = index as u8;
-        let row = index / 8 + 1;
-        let column = index % 8 + 1;
-        let led = row * 10 + column;
-
-        let bytes = vec![240, 0, 32, 41, 2, 16, 40, led, 45, 247];
-        return Ok(LaunchpadProEvent::from(Event::SysEx(bytes)));
+pub fn from_index_to_highlight(index: u16) -> Result<LaunchpadProEvent, Error> {
+    if index > 63 {
+        return Err(Error::OutOfBoundIndexError);
     }
+
+    let index = index as u8;
+    let row = index / 8 + 1;
+    let column = index % 8 + 1;
+    let led = row * 10 + column;
+
+    let bytes = vec![240, 0, 32, 41, 2, 16, 40, led, 45, 247];
+    return Ok(Event::SysEx(bytes).into());
 }
 
-impl FromAppColors<LaunchpadProEvent> for LaunchpadProEvent {
-    fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<LaunchpadProEvent, Error> {
-        if app_colors.len() > 8 {
-            return Err(Error::OutOfBoundIndexError);
-        }
-
-        let mut bytes = vec![240, 0, 32, 41, 2, 16, 11];
-
-        for index in 0..app_colors.len() {
-            let led = (89 - 10 * index) as u8;
-            bytes.append(&mut vec![
-                led,
-                app_colors[index][0] / 4,
-                app_colors[index][1] / 4,
-                app_colors[index][2] / 4,
-            ]);
-        }
-        bytes.push(247);
-
-        return Ok(LaunchpadProEvent::from(Event::SysEx(bytes)));
+pub fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<LaunchpadProEvent, Error> {
+    if app_colors.len() > 8 {
+        return Err(Error::OutOfBoundIndexError);
     }
+
+    let mut bytes = vec![240, 0, 32, 41, 2, 16, 11];
+
+    for index in 0..app_colors.len() {
+        let led = (89 - 10 * index) as u8;
+        bytes.append(&mut vec![
+            led,
+            app_colors[index][0] / 4,
+            app_colors[index][1] / 4,
+            app_colors[index][2] / 4,
+        ]);
+    }
+    bytes.push(247);
+
+    return Ok(Event::SysEx(bytes).into());
 }
 
 #[cfg(test)]
@@ -89,13 +81,13 @@ mod tests {
     #[test]
     fn into_index_given_incorrect_status_should_return_none() {
         let event = LaunchpadProEvent { event: Event::Midi([128, 53, 10, 0]) };
-        assert_eq!(None, event.into_index().expect("into_index should not fail"));
+        assert_eq!(None, into_index(event).expect("into_index should not fail"));
     }
 
     #[test]
     fn into_index_given_low_velocity_should_return_none() {
         let event = LaunchpadProEvent { event: Event::Midi([144, 53, 0, 0]) };
-        assert_eq!(None, event.into_index().expect("into_index should not fail"));
+        assert_eq!(None, into_index(event).expect("into_index should not fail"));
     }
 
     #[test]
@@ -117,7 +109,7 @@ mod tests {
 
         for event in events {
             let launchpadpro_event = LaunchpadProEvent { event: Event::Midi(event) };
-            assert_eq!(None, launchpadpro_event.into_index().expect("into_index should not fail"));
+            assert_eq!(None, into_index(launchpadpro_event).expect("into_index should not fail"));
         }
     }
 
@@ -134,7 +126,7 @@ mod tests {
             11, 12, 13, 14, 15, 16, 17, 18,
         ]
             .iter()
-            .map(|code| (LaunchpadProEvent { event: Event::Midi([144, *code, 10, 0]) }).into_index().expect("into_index should not fail"))
+            .map(|code| into_index(LaunchpadProEvent { event: Event::Midi([144, *code, 10, 0]) }).expect("into_index should not fail"))
             .collect::<Vec<Option<u16>>>();
 
         let expected_output = vec![
@@ -157,13 +149,13 @@ mod tests {
     #[test]
     fn into_app_index_given_incorrect_status_should_return_none() {
         let event = LaunchpadProEvent { event: Event::Midi([128, 89, 10, 0]) };
-        assert_eq!(None, event.into_app_index().expect("into_app_index should not fail"));
+        assert_eq!(None, into_app_index(event).expect("into_app_index should not fail"));
     }
 
     #[test]
     fn into_app_index_given_low_velocity_should_return_none() {
         let event = LaunchpadProEvent { event: Event::Midi([176, 89, 0, 0]) };
-        assert_eq!(None, event.into_app_index().expect("into_app_index should not fail"));
+        assert_eq!(None, into_app_index(event).expect("into_app_index should not fail"));
     }
 
     #[test]
@@ -185,7 +177,7 @@ mod tests {
 
         for event in events {
             let launchpadpro_event = LaunchpadProEvent { event: Event::Midi(event) };
-            assert_eq!(None, launchpadpro_event.into_app_index().expect("into_app_index should not fail"));
+            assert_eq!(None, into_app_index(launchpadpro_event).expect("into_app_index should not fail"));
         }
     }
 
@@ -193,7 +185,7 @@ mod tests {
     fn into_app_index_should_correct_value() {
         let actual_output = vec![19, 29, 39, 49, 59, 69, 79, 89]
             .iter()
-            .map(|code| (LaunchpadProEvent { event: Event::Midi([176, *code, 10, 0]) }).into_app_index().expect("into_app_index should not fail"))
+            .map(|code| into_app_index(LaunchpadProEvent { event: Event::Midi([176, *code, 10, 0]) }).expect("into_app_index should not fail"))
             .collect::<Vec<Option<u16>>>();
 
         let expected_output = vec![7, 6, 5, 4, 3, 2, 1, 0]

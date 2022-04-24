@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{FromImage, IntoIndex};
+use crate::midi::RichEvent;
 
 use super::config::Config;
 use super::client;
@@ -28,13 +28,7 @@ pub const COLOR: [u8; 3] = [255, 0, 0];
 
 const DELAY: Duration = Duration::from_millis(5_000);
 
-impl<E: 'static> Youtube<E> where
-    E: IntoIndex,
-    E: FromImage<E>,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
+impl<E: 'static> Youtube<E> where E: RichEvent<E> {
     pub fn new(config: Config) -> Self {
         let (in_sender, mut in_receiver) = mpsc::channel::<E>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out<E>>(32);
@@ -79,14 +73,7 @@ impl<E: 'static> Youtube<E> where
     }
 }
 
-impl<E: 'static> App<E, Out<E>> for Youtube<E> where
-    E: IntoIndex,
-    E: FromImage<E>,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
-
+impl<E: 'static> App<E, Out<E>> for Youtube<E> where E: RichEvent<E> {
     fn get_name(&self) -> &'static str {
         return NAME;
     }
@@ -108,10 +95,7 @@ impl<E: 'static> App<E, Out<E>> for Youtube<E> where
     }
 }
 
-async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(), ()> where
-    E: FromImage<E>,
-    E: std::fmt::Debug,
-{
+async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(), ()> where E: RichEvent<E> {
     let event = E::from_image(get_logo()).map_err(|err| {
         eprintln!("Could not convert the image into a MIDI event: {:?}", err);
         ()
@@ -156,10 +140,7 @@ async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
     return Ok(());
 }
 
-async fn handle_youtube_task<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
-    E: IntoIndex,
-    E: std::fmt::Debug,
-{
+async fn handle_youtube_task<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where E: RichEvent<E> {
     match event_in.into_index() {
         Ok(Some(index)) => {
             {

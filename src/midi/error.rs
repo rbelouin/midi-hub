@@ -10,6 +10,7 @@ pub enum Error {
     WriteError,
     ImageRenderError,
     OutOfBoundIndexError,
+    Unsupported,
 }
 
 impl fmt::Display for Error {
@@ -23,6 +24,7 @@ impl fmt::Display for Error {
             Error::WriteError => write!(f, "[midi] could not write an event"),
             Error::ImageRenderError => write!(f, "[midi] could not render image"),
             Error::OutOfBoundIndexError => write!(f, "[midi] could not handle index"),
+            Error::Unsupported => write!(f, "[midi] unsupported operation"),
         }
     }
 }
