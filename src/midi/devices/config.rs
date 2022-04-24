@@ -63,10 +63,11 @@ fn configure_type() -> Result<DeviceType, Box<dyn std::error::Error>> {
     let device_type = device_type.trim().to_string();
     println!("");
 
-    return match toml::from_str(device_type.as_str()) {
-        Ok(device_type) => Ok(device_type),
-        Err(err) => {
-            eprintln!("[midi] could not parse the device type: {}", err);
+    return match device_type.as_str() {
+        "default" => Ok(DeviceType::Default),
+        "launchpadpro" => Ok(DeviceType::LaunchpadPro),
+        _ => {
+            eprintln!("[midi] could not parse the device type: {}", device_type);
             configure_type()
         },
     }
