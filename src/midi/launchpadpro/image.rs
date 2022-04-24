@@ -1,38 +1,23 @@
 use crate::image::{Image, scale};
 use crate::midi::{Error, Event};
-use super::LaunchpadProEvent;
 
 const WIDTH: usize = 8;
 const HEIGHT: usize = 8;
 const SIZE: usize = WIDTH * HEIGHT;
 
-pub fn from_image(image: Image) -> Result<LaunchpadProEvent, Error> {
+pub fn from_image(image: Image) -> Result<Event, Error> {
     let scaled_image = scale(&image, WIDTH, HEIGHT).map_err(|_| Error::ImageRenderError)?;
     return render_24bit_image_reversed(scaled_image.bytes);
 }
 
-fn render_one_image(image: &Image) -> Result<LaunchpadProEvent, Error> {
-    let scaled_image = scale(image, WIDTH, HEIGHT).map_err(|_| Error::ImageRenderError)?;
-    return render_24bit_image_reversed(scaled_image.bytes);
-}
-
-fn render_one_image_per_pad(images: &Vec<Image>) -> Result<LaunchpadProEvent, Error> {
-    let fallback_pixel = Image { width: 1, height: 1, bytes: vec![0; 3] };
-    let mosaic = images.into_iter()
-        .map(|image| scale(image, 1, 1).unwrap_or(fallback_pixel.clone()))
-        .flat_map(|image| image.bytes)
-        .collect::<Vec<u8>>();
-    return render_24bit_image(mosaic);
-}
-
 /// The LaunchpadPro’s coordinate system places the origin at the bottom-left corner, so we
 /// need to give an easy option to render an image with (0,0) being the top-left corner.
-fn render_24bit_image_reversed(bytes: Vec<u8>) -> Result<LaunchpadProEvent, Error> {
+fn render_24bit_image_reversed(bytes: Vec<u8>) -> Result<Event, Error> {
     let reversed_bytes = reverse_rows(bytes)?;
     return render_24bit_image(reversed_bytes);
 }
 
-fn render_24bit_image(bytes: Vec<u8>) -> Result<LaunchpadProEvent, Error> {
+fn render_24bit_image(bytes: Vec<u8>) -> Result<Event, Error> {
     // one byte for each color
     let size = SIZE * 3;
 
@@ -50,7 +35,7 @@ fn render_24bit_image(bytes: Vec<u8>) -> Result<LaunchpadProEvent, Error> {
     }
     picture.append(&mut vec![247]);
 
-    return Ok(LaunchpadProEvent { event: Event::SysEx(picture) });
+    return Ok(Event::SysEx(picture));
 }
 
 fn reverse_rows(bytes: Vec<u8>) -> Result<Vec<u8>, Error> {

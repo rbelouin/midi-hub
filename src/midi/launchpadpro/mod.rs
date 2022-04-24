@@ -1,8 +1,9 @@
 mod device;
-mod event;
+
+mod image;
+mod index;
 
 pub use device::LaunchpadPro;
-pub use event::LaunchpadProEvent;
 
 #[cfg(test)]
 mod test {

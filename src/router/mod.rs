@@ -10,9 +10,10 @@ use serde::{Serialize, Deserialize};
 use crate::apps;
 use crate::apps::{App, Out};
 use crate::midi;
-use midi::{Connections, Error, Event, Reader, Writer, RichEvent};
-use midi::launchpadpro::{LaunchpadPro, LaunchpadProEvent};
+use midi::{InputOutputConnection, Connections, Error, Reader, Writer, RichDevice};
 use crate::server::HttpServer;
+
+type LaunchpadPro<'a> = midi::launchpadpro::LaunchpadPro<InputOutputConnection<'a>>;
 
 const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -31,8 +32,8 @@ pub struct Router {
     config: RunConfig,
     term: Arc<AtomicBool>,
     server: HttpServer,
-    forward_app: Box<dyn App<Event, Out<Event>>>,
-    apps: Vec<Box<dyn App<LaunchpadProEvent, Out<LaunchpadProEvent>>>>,
+    forward_app: Box<dyn App>,
+    apps: Vec<Box<dyn App>>,
     selected_app: usize,
 }
 
@@ -42,8 +43,8 @@ impl Router {
 
         let server = HttpServer::start();
         let forward_app = apps::forward::app::Forward::new(config.forward.clone());
-        let spotify_app = apps::spotify::app::Spotify::new(config.spotify.clone());
-        let youtube_app = apps::youtube::app::Youtube::new(config.youtube.clone());
+        let spotify_app = apps::spotify::app::Spotify::new::<LaunchpadPro, LaunchpadPro>(config.spotify.clone());
+        let youtube_app = apps::youtube::app::Youtube::new::<LaunchpadPro, LaunchpadPro>(config.youtube.clone());
 
         return Router {
             config,
@@ -95,7 +96,7 @@ impl Router {
                                 self.server.send(command);
                                 Ok(())
                             },
-                            Ok(Out::Event(event)) => {
+                            Ok(Out::Midi(event)) => {
                                 output.write(event)
                             },
                             _ => Ok(()),
@@ -106,7 +107,7 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
-                        let _ = LaunchpadProEvent::from_app_colors(
+                        let _ = LaunchpadPro::from_app_colors(
                             self.apps.iter().map(|app| app.get_color()).collect()
                         ).and_then(|event| launchpad.write(event));
 
@@ -116,7 +117,7 @@ impl Router {
                                 Ok(Out::Server(command)) => {
                                     let _ = self.server.send(command);
                                 },
-                                Ok(Out::Event(event)) => {
+                                Ok(Out::Midi(event)) => {
                                     let _ = launchpad.write(event);
                                 },
                                 _ => {},
@@ -125,7 +126,7 @@ impl Router {
 
                         match launchpad.read() {
                             Ok(Some(event)) => {
-                                let selected_app = event.clone().into_app_index().ok().flatten()
+                                let selected_app = LaunchpadPro::into_app_index(event.clone()).ok().flatten()
                                     .and_then(|app_index| {
                                         let selected_app = self.apps.get(app_index as usize);
                                         if selected_app.is_some() {
@@ -137,7 +138,7 @@ impl Router {
                                 match selected_app {
                                     Some(selected_app) => {
                                         println!("Selecting {}", selected_app.get_name());
-                                        let _ = LaunchpadProEvent::from_image(selected_app.get_logo())
+                                        let _ = LaunchpadPro::from_image(selected_app.get_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     _ => {
