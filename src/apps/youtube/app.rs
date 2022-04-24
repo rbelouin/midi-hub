@@ -7,12 +7,14 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{Event, RichDevice};
+use crate::midi::{Event, EventTransformer};
 
 use super::config::Config;
 use super::client;
 
 struct State {
+    input_transformer: &'static (dyn EventTransformer + Sync),
+    output_transformer: &'static (dyn EventTransformer + Sync),
     config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
@@ -29,11 +31,17 @@ pub const COLOR: [u8; 3] = [255, 0, 0];
 const DELAY: Duration = Duration::from_millis(5_000);
 
 impl Youtube {
-    pub fn new<I: 'static + RichDevice, O: RichDevice>(config: Config) -> Self {
+    pub fn new(
+        config: Config,
+        input_transformer: &'static (dyn EventTransformer + Sync),
+        output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Self {
         let (in_sender, mut in_receiver) = mpsc::channel::<Event>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let state = Arc::new(State {
+            input_transformer,
+            output_transformer,
             config,
             last_action: Mutex::new(Instant::now() - DELAY),
             items: Mutex::new(vec![]),
@@ -48,7 +56,7 @@ impl Youtube {
         let out_sender = Arc::new(out_sender);
         std::thread::spawn(move || {
             rt.block_on(async move {
-                let _ = render_youtube_logo::<O>(Arc::clone(&out_sender)).await;
+                let _ = render_youtube_logo(Arc::clone(&state_copy), Arc::clone(&out_sender)).await;
                 let _ = pull_playlist_items(Arc::clone(&state_copy)).await;
                 while let Some(event) = in_receiver.recv().await {
                     let state = Arc::clone(&state_copy);
@@ -58,7 +66,7 @@ impl Youtube {
                     };
 
                     if time_elapsed > DELAY {
-                        tokio::spawn(handle_youtube_task::<I>(Arc::clone(&state_copy), Arc::clone(&out_sender), event.clone()));
+                        tokio::spawn(handle_youtube_task(Arc::clone(&state_copy), Arc::clone(&out_sender), event.clone()));
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -95,8 +103,8 @@ impl App for Youtube {
     }
 }
 
-async fn render_youtube_logo<O: RichDevice>(sender: Arc<mpsc::Sender<Out>>) -> Result<(), ()> {
-    let event = O::from_image(get_logo()).map_err(|err| {
+async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) -> Result<(), ()> {
+    let event = state.output_transformer.from_image(get_logo()).map_err(|err| {
         eprintln!("Could not convert the image into a MIDI event: {:?}", err);
         ()
     })?;
@@ -140,8 +148,8 @@ async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
     return Ok(());
 }
 
-async fn handle_youtube_task<I: RichDevice>(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
-    match I::into_index(event) {
+async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
+    match state.input_transformer.into_index(event) {
         Ok(Some(index)) => {
             {
                 let mut last_action = state.last_action.lock().unwrap();

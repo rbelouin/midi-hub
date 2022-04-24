@@ -10,7 +10,7 @@ use serde::{Serialize, Deserialize};
 use crate::apps;
 use crate::apps::{App, Out};
 use crate::midi;
-use midi::{InputOutputConnection, Connections, Error, Reader, Writer, RichDevice};
+use midi::{InputOutputConnection, Connections, Error, Reader, Writer, EventTransformer};
 use crate::server::HttpServer;
 
 type LaunchpadPro<'a> = midi::launchpadpro::LaunchpadPro<InputOutputConnection<'a>>;
@@ -43,8 +43,16 @@ impl Router {
 
         let server = HttpServer::start();
         let forward_app = apps::forward::app::Forward::new(config.forward.clone());
-        let spotify_app = apps::spotify::app::Spotify::new::<LaunchpadPro, LaunchpadPro>(config.spotify.clone());
-        let youtube_app = apps::youtube::app::Youtube::new::<LaunchpadPro, LaunchpadPro>(config.youtube.clone());
+        let spotify_app = apps::spotify::app::Spotify::new(
+            config.spotify.clone(),
+            LaunchpadPro::transformer(),
+            LaunchpadPro::transformer(),
+        );
+        let youtube_app = apps::youtube::app::Youtube::new(
+            config.youtube.clone(),
+            LaunchpadPro::transformer(),
+            LaunchpadPro::transformer(),
+        );
 
         return Router {
             config,
@@ -107,7 +115,7 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
-                        let _ = LaunchpadPro::from_app_colors(
+                        let _ = launchpad.transformer.from_app_colors(
                             self.apps.iter().map(|app| app.get_color()).collect()
                         ).and_then(|event| launchpad.write(event));
 
@@ -126,7 +134,7 @@ impl Router {
 
                         match launchpad.read() {
                             Ok(Some(event)) => {
-                                let selected_app = LaunchpadPro::into_app_index(event.clone()).ok().flatten()
+                                let selected_app = launchpad.transformer.into_app_index(event.clone()).ok().flatten()
                                     .and_then(|app_index| {
                                         let selected_app = self.apps.get(app_index as usize);
                                         if selected_app.is_some() {
@@ -138,7 +146,7 @@ impl Router {
                                 match selected_app {
                                     Some(selected_app) => {
                                         println!("Selecting {}", selected_app.get_name());
-                                        let _ = LaunchpadPro::from_image(selected_app.get_logo())
+                                        let _ = launchpad.transformer.from_image(selected_app.get_logo())
                                             .and_then(|event| launchpad.write(event));
                                     },
                                     _ => {

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{Event, RichDevice};
+use crate::midi::{Event, EventTransformer};
 
 use super::config::Config;
 use super::client;
@@ -20,6 +20,8 @@ pub const COLOR: [u8; 3] = [0, 255, 0];
 const DELAY: Duration = Duration::from_millis(5_000);
 
 struct State {
+    input_transformer: &'static (dyn EventTransformer + Sync),
+    output_transformer: &'static (dyn EventTransformer + Sync),
     access_token: Mutex<Option<String>>,
     last_action: Mutex<Instant>,
     tracks: Mutex<Option<Vec<SpotifyTrack>>>,
@@ -32,9 +34,15 @@ pub struct Spotify {
 }
 
 impl Spotify {
-    pub fn new<I: 'static + RichDevice, O: 'static + RichDevice>(config: Config) -> Self {
+    pub fn new(
+        config: Config,
+        input_transformer: &'static (dyn EventTransformer + Sync),
+        output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Self {
         let config = Arc::new(config);
         let state = Arc::new(State {
+            input_transformer,
+            output_transformer,
             access_token: Mutex::new(None),
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),
@@ -54,7 +62,7 @@ impl Spotify {
         std::thread::spawn(move || {
             rt.block_on(async move {
                 pull_playlist_tracks(Arc::clone(&config_copy), Arc::clone(&state)).await;
-                render_spotify_logo::<O>(Arc::clone(&state), Arc::clone(&out_sender)).await;
+                render_spotify_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
                 while let Some(event) = in_receiver.recv().await {
                     let config = Arc::clone(&config_copy);
                     let state = Arc::clone(&state);
@@ -64,7 +72,7 @@ impl Spotify {
                     };
 
                     if time_elapsed > DELAY {
-                        tokio::spawn(handle_spotify_task::<I, O>(Arc::clone(&config), Arc::clone(&state), Arc::clone(&out_sender), event.clone()));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&state), Arc::clone(&out_sender), event.clone()));
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -116,8 +124,8 @@ impl App for Spotify {
     }
 }
 
-async fn handle_spotify_task<I: RichDevice, O: RichDevice>(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
-    let _ = match I::into_index(event) {
+async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
+    let _ = match state.input_transformer.into_index(event) {
         Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
             {
                 let mut last_action = state.last_action.lock().unwrap();
@@ -134,7 +142,7 @@ async fn handle_spotify_task<I: RichDevice, O: RichDevice>(config: Arc<Config>, 
                         let mut playing = s.playing.lock().unwrap();
                         *playing = None;
                     }
-                    render_spotify_logo::<O>(Arc::clone(&state), Arc::clone(&sender)).await;
+                    render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                 }
                 return res;
             }
@@ -151,7 +159,7 @@ async fn handle_spotify_task<I: RichDevice, O: RichDevice>(config: Arc<Config>, 
                 Some(url) => {
                     let image = Image::from_url(&url).await.map_err(|_| ());
                     let event_out = image.and_then(|image| {
-                        return O::from_image(image).map_err(|_| ());
+                        return state.output_transformer.from_image(image).map_err(|_| ());
                     });
 
                     match event_out {
@@ -159,7 +167,7 @@ async fn handle_spotify_task<I: RichDevice, O: RichDevice>(config: Arc<Config>, 
                             let _ = sender.send(event.into()).await;
                             sleep(DELAY).await;
                             pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-                            render_spotify_logo::<O>(Arc::clone(&state), Arc::clone(&sender)).await;
+                            render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                         },
                         Err(_) => {
                             println!("Could not download and decode {}", url);
@@ -190,8 +198,8 @@ async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     }
 }
 
-async fn render_spotify_logo<O: RichDevice>(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) {
-    match O::from_image(get_spotify_logo()) {
+async fn render_spotify_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) {
+    match state.output_transformer.from_image(get_spotify_logo()) {
         Err(_) => println!("[Spotify] could not render the spotify logo"),
         Ok(event) => {
             let _ = sender.send(event.into()).await;
@@ -200,7 +208,7 @@ async fn render_spotify_logo<O: RichDevice>(state: Arc<State>, sender: Arc<mpsc:
 
     let playing = state.playing.lock().unwrap().clone();
     match playing {
-        Some(index) => match O::from_index_to_highlight(index) {
+        Some(index) => match state.output_transformer.from_index_to_highlight(index) {
             Ok(event) => {
                 let _ = sender.send(event.into()).await;
             },

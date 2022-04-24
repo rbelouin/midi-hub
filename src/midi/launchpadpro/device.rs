@@ -1,14 +1,21 @@
 use std::convert::From;
 
-use crate::midi::{Reader, Writer, Error, Event, RichDevice, Image};
+use crate::midi::{Reader, Writer, Error, Event, EventTransformer, Image};
 
 pub struct LaunchpadPro<C> where C: Reader + Writer {
     pub connection: C,
+    pub transformer: &'static LaunchpadProEventTransformer,
+}
+
+impl<C> LaunchpadPro<C> where C: Reader + Writer {
+    pub fn transformer() -> &'static LaunchpadProEventTransformer {
+        return &LAUNCHPADPRO_EVENT_TRANSFORMER;
+    }
 }
 
 impl<C> From<C> for LaunchpadPro<C> where C: Reader + Writer {
     fn from(connection: C) -> LaunchpadPro<C> {
-        return LaunchpadPro { connection };
+        return LaunchpadPro { connection, transformer: &LAUNCHPADPRO_EVENT_TRANSFORMER };
     }
 }
 
@@ -28,24 +35,32 @@ impl<C> Writer for LaunchpadPro<C> where C: Reader + Writer {
     }
 }
 
-impl<C> RichDevice for LaunchpadPro<C> where C: Reader + Writer {
-    fn into_index(event: Event) -> Result<Option<u16>, Error> {
+static LAUNCHPADPRO_EVENT_TRANSFORMER: LaunchpadProEventTransformer = LaunchpadProEventTransformer::new();
+pub struct LaunchpadProEventTransformer {}
+impl LaunchpadProEventTransformer {
+    const fn new() -> LaunchpadProEventTransformer {
+        LaunchpadProEventTransformer {}
+    }
+}
+
+impl EventTransformer for LaunchpadProEventTransformer {
+    fn into_index(&self, event: Event) -> Result<Option<u16>, Error> {
         return super::index::into_index(event);
     }
 
-    fn into_app_index(event: Event) -> Result<Option<u16>, Error> {
+    fn into_app_index(&self, event: Event) -> Result<Option<u16>, Error> {
         return super::index::into_app_index(event);
     }
 
-    fn from_image(image: Image) -> Result<Event, Error> {
+    fn from_image(&self, image: Image) -> Result<Event, Error> {
         return super::image::from_image(image);
     }
 
-    fn from_index_to_highlight(index: u16) -> Result<Event, Error> {
+    fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
         return super::index::from_index_to_highlight(index);
     }
 
-    fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
+    fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
         return super::index::from_app_colors(app_colors);
     }
 }
