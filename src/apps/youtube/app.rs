@@ -7,20 +7,22 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{FromImage, IntoIndex};
+use crate::midi::{Event, EventTransformer};
 
 use super::config::Config;
 use super::client;
 
 struct State {
+    input_transformer: &'static (dyn EventTransformer + Sync),
+    output_transformer: &'static (dyn EventTransformer + Sync),
     config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
 }
 
-pub struct Youtube<E> {
-    in_sender: mpsc::Sender<E>,
-    out_receiver: mpsc::Receiver<Out<E>>,
+pub struct Youtube {
+    in_sender: mpsc::Sender<Event>,
+    out_receiver: mpsc::Receiver<Out>,
 }
 
 pub const NAME: &'static str = "youtube";
@@ -28,18 +30,18 @@ pub const COLOR: [u8; 3] = [255, 0, 0];
 
 const DELAY: Duration = Duration::from_millis(5_000);
 
-impl<E: 'static> Youtube<E> where
-    E: IntoIndex,
-    E: FromImage<E>,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
-    pub fn new(config: Config) -> Self {
-        let (in_sender, mut in_receiver) = mpsc::channel::<E>(32);
-        let (out_sender, out_receiver) = mpsc::channel::<Out<E>>(32);
+impl Youtube {
+    pub fn new(
+        config: Config,
+        input_transformer: &'static (dyn EventTransformer + Sync),
+        output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Self {
+        let (in_sender, mut in_receiver) = mpsc::channel::<Event>(32);
+        let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let state = Arc::new(State {
+            input_transformer,
+            output_transformer,
             config,
             last_action: Mutex::new(Instant::now() - DELAY),
             items: Mutex::new(vec![]),
@@ -54,7 +56,7 @@ impl<E: 'static> Youtube<E> where
         let out_sender = Arc::new(out_sender);
         std::thread::spawn(move || {
             rt.block_on(async move {
-                let _ = render_youtube_logo(Arc::clone(&out_sender)).await;
+                let _ = render_youtube_logo(Arc::clone(&state_copy), Arc::clone(&out_sender)).await;
                 let _ = pull_playlist_items(Arc::clone(&state_copy)).await;
                 while let Some(event) = in_receiver.recv().await {
                     let state = Arc::clone(&state_copy);
@@ -79,14 +81,7 @@ impl<E: 'static> Youtube<E> where
     }
 }
 
-impl<E: 'static> App<E, Out<E>> for Youtube<E> where
-    E: IntoIndex,
-    E: FromImage<E>,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
-
+impl App for Youtube {
     fn get_name(&self) -> &'static str {
         return NAME;
     }
@@ -99,25 +94,22 @@ impl<E: 'static> App<E, Out<E>> for Youtube<E> where
         return get_logo();
     }
 
-    fn send(&self, event: E) -> Result<(), mpsc::error::SendError<E>> {
+    fn send(&self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
         return self.in_sender.blocking_send(event);
     }
 
-    fn receive(&mut self) -> Result<Out<E>, mpsc::error::TryRecvError> {
+    fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
     }
 }
 
-async fn render_youtube_logo<E>(sender: Arc<mpsc::Sender<Out<E>>>) -> Result<(), ()> where
-    E: FromImage<E>,
-    E: std::fmt::Debug,
-{
-    let event = E::from_image(get_logo()).map_err(|err| {
+async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) -> Result<(), ()> {
+    let event = state.output_transformer.from_image(get_logo()).map_err(|err| {
         eprintln!("Could not convert the image into a MIDI event: {:?}", err);
         ()
     })?;
 
-    return sender.send(Out::Event(event)).await.map_err(|err| {
+    return sender.send(event.into()).await.map_err(|err| {
         eprintln!("Could not send the event back to the router: {:?}", err);
         ()
     });
@@ -156,11 +148,8 @@ async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
     return Ok(());
 }
 
-async fn handle_youtube_task<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
-    E: IntoIndex,
-    E: std::fmt::Debug,
-{
-    match event_in.into_index() {
+async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
+    match state.input_transformer.into_index(event) {
         Ok(Some(index)) => {
             {
                 let mut last_action = state.last_action.lock().unwrap();

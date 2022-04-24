@@ -48,33 +48,13 @@ fn get_command() -> Result<Command, String> {
 }
 
 fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
-    let mut input_name = String::new();
-    let mut output_name = String::new();
-    let mut launchpad_name = String::new();
-    
-    println!("[midi] please enter the name of the device you want to use as an input when forwarding events:");
-    std::io::stdin().read_line(&mut input_name)?;
-    let input_name = input_name.trim().to_string();
-    println!("");
-    
-    println!("[midi] please enter the name of the device you want to use as an output when forwarding events:");
-    std::io::stdin().read_line(&mut output_name)?;
-    let output_name = output_name.trim().to_string();
-    println!("");
-    
-    println!("[midi] please enter the name of the launchpad pro to use with the spotify and youtube apps:");
-    std::io::stdin().read_line(&mut launchpad_name)?;
-    let launchpad_name = launchpad_name.trim().to_string();
-    println!("");
-
+    let devices = midi::devices::config::configure()?;
     let forward = apps::forward::config::configure()?;
     let spotify = apps::spotify::config::configure()?;
     let youtube = apps::youtube::config::configure()?;
 
     return Ok(router::RunConfig {
-        input_name,
-        output_name,
-        launchpad_name,
+        devices,
         forward,
         spotify,
         youtube,

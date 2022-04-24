@@ -2,24 +2,25 @@ use tokio::sync::mpsc;
 
 use crate::apps::{App, Out};
 use crate::image::Image;
+use crate::midi::{Event, EventTransformer};
 
 use super::config::Config;
 
-pub struct Forward<E> {
-    sender: mpsc::Sender<E>,
-    receiver: mpsc::Receiver<E>,
+pub struct Forward {
+    sender: mpsc::Sender<Event>,
+    receiver: mpsc::Receiver<Event>,
 }
 
 pub const NAME: &'static str = "forward";
 pub const COLOR: [u8; 3] = [0, 0, 255];
 
-impl<E: 'static> Forward<E> where
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
-    pub fn new(_config: Config) -> Self {
-        let (sender, receiver) = mpsc::channel::<E>(32);
+impl Forward {
+    pub fn new(
+        _config: Config,
+        _input_transformer: &'static (dyn EventTransformer + Sync),
+        _output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Self {
+        let (sender, receiver) = mpsc::channel::<Event>(32);
 
         Forward {
             sender,
@@ -28,12 +29,7 @@ impl<E: 'static> Forward<E> where
     }
 }
 
-impl<E: 'static> App<E, Out<E>> for Forward<E> where
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
-
+impl App for Forward {
     fn get_name(&self) -> &'static str {
         return NAME;
     }
@@ -46,12 +42,12 @@ impl<E: 'static> App<E, Out<E>> for Forward<E> where
         return get_logo();
     }
 
-    fn send(&self, event: E) -> Result<(), mpsc::error::SendError<E>> {
+    fn send(&self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
         return self.sender.blocking_send(event);
     }
 
-    fn receive(&mut self) -> Result<Out<E>, mpsc::error::TryRecvError> {
-        return self.receiver.try_recv().map(|event| Out::Event(event));
+    fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
+        return self.receiver.try_recv().map(|event| event.into());
     }
 }
 

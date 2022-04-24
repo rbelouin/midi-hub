@@ -1,9 +1,10 @@
-use std::convert::{From, Into};
+use std::convert::From;
 
 extern crate portmidi;
-use portmidi::{MidiEvent, MidiMessage};
+use portmidi::{InputPort, OutputPort, MidiEvent, MidiMessage};
 
-use super::{Error, InputPort, OutputPort};
+pub use crate::image::Image;
+use super::Error;
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -11,16 +12,36 @@ pub enum Event {
     SysEx(Vec<u8>),
 }
 
+pub trait EventTransformer {
+    /// Device that can associate a MIDI event to an unsigned integer,
+    /// that can be used to access elements of an indexed collections.
+    fn into_index(&self, event: Event) -> Result<Option<u16>, Error>;
+
+    /// Device that can associate a MIDI event to an unsigned integer,
+    /// that can be used to select a midi-hub application.
+    fn into_app_index(&self, event: Event) -> Result<Option<u16>, Error>;
+
+    /// Device that can render an image.
+    fn from_image(&self, image: Image) -> Result<Event, Error>;
+
+    /// Device that can highlight an element corresponding to an unsigned integer,
+    /// this method can be used to emphasize the active element of a collection.
+    fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error>;
+
+    /// Device that can highlight the app selection elements with the corresponding colors.
+    fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> Result<Event, Error>;
+}
+
 /// MIDI Device that is able to emit MIDI events
-pub trait Reader<E> where E: From<Event> {
+pub trait Reader {
     fn read_midi(&mut self) -> Result<Option<[u8; 4]>, Error>;
-    fn read(&mut self) -> Result<Option<E>, Error> {
+    fn read(&mut self) -> Result<Option<Event>, Error> {
         let midi = self.read_midi()?;
-        return Ok(midi.map(|m| Event::Midi(m).into()));
+        return Ok(midi.map(|m| Event::Midi(m)));
     }
 }
 
-impl Reader<Event> for InputPort<'_> {
+impl Reader for InputPort<'_> {
     fn read_midi(&mut self) -> Result<Option<[u8; 4]>, Error> {
         return self.read()
             .map(|event| 
@@ -29,26 +50,26 @@ impl Reader<Event> for InputPort<'_> {
     }
 }
 
-impl<'a> Reader<Event> for (InputPort<'a>, OutputPort<'a>) {
+impl<'a> Reader for (InputPort<'a>, OutputPort<'a>) {
     fn read_midi(&mut self) -> Result<Option<[u8; 4]>, Error> {
         return Reader::read_midi(&mut self.0);
     }
 }
 
 /// MIDI Device that is able to receive MIDI events and SysEx MIDI messages
-pub trait Writer<E> where E: Into<Event> {
+pub trait Writer {
     fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error>;
     fn write_sysex(&mut self, event: &[u8]) -> Result<(), Error>;
 
-    fn write(&mut self, event: E) -> Result<(), Error> {
-        return match event.into() {
+    fn write(&mut self, event: Event) -> Result<(), Error> {
+        return match event {
             Event::Midi(event) => self.write_midi(&event),
             Event::SysEx(event) => self.write_sysex(&event),
         };
     }
 }
 
-impl Writer<Event> for OutputPort<'_> {
+impl Writer for OutputPort<'_> {
     fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error> {
         return self.write_event(MidiEvent::from(MidiMessage::from(*event))).map_err(|_| Error::WriteError);
     }
@@ -58,7 +79,7 @@ impl Writer<Event> for OutputPort<'_> {
     }
 }
 
-impl<'a> Writer<Event> for (InputPort<'a>, OutputPort<'a>) {
+impl<'a> Writer for (InputPort<'a>, OutputPort<'a>) {
     fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error> {
         return Writer::write_midi(&mut self.1, event);
     }

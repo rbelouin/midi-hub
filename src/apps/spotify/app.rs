@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{FromImage, FromImages, FromSelectedIndex, IntoIndex};
+use crate::midi::{Event, EventTransformer};
 
 use super::config::Config;
 use super::client;
@@ -20,37 +20,37 @@ pub const COLOR: [u8; 3] = [0, 255, 0];
 const DELAY: Duration = Duration::from_millis(5_000);
 
 struct State {
+    input_transformer: &'static (dyn EventTransformer + Sync),
+    output_transformer: &'static (dyn EventTransformer + Sync),
     access_token: Mutex<Option<String>>,
     last_action: Mutex<Instant>,
     tracks: Mutex<Option<Vec<SpotifyTrack>>>,
     playing: Mutex<Option<u16>>,
 }
 
-pub struct Spotify<E> {
-    in_sender: mpsc::Sender<E>,
-    out_receiver: mpsc::Receiver<Out<E>>,
+pub struct Spotify {
+    in_sender: mpsc::Sender<Event>,
+    out_receiver: mpsc::Receiver<Out>,
 }
 
-impl<E: 'static> Spotify<E> where
-    E: FromImage<E>,
-    E: FromImages<E>,
-    E: FromSelectedIndex<E>,
-    E: IntoIndex,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
-    pub fn new(config: Config) -> Self {
+impl Spotify {
+    pub fn new(
+        config: Config,
+        input_transformer: &'static (dyn EventTransformer + Sync),
+        output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Self {
         let config = Arc::new(config);
         let state = Arc::new(State {
+            input_transformer,
+            output_transformer,
             access_token: Mutex::new(None),
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),
             playing: Mutex::new(None),
         });
 
-        let (in_sender, mut in_receiver) = mpsc::channel::<E>(32);
-        let (out_sender, out_receiver) = mpsc::channel::<Out<E>>(32);
+        let (in_sender, mut in_receiver) = mpsc::channel::<Event>(32);
+        let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let rt = Builder::new_current_thread()
             .enable_all()
@@ -87,15 +87,7 @@ impl<E: 'static> Spotify<E> where
     }
 }
 
-impl<E: 'static> App<E, Out<E>> for Spotify<E> where
-    E: FromImage<E>,
-    E: FromImages<E>,
-    E: FromSelectedIndex<E>,
-    E: IntoIndex,
-    E: Clone,
-    E: std::fmt::Debug,
-    E: std::marker::Send,
-{
+impl App for Spotify {
     fn get_name(&self) -> &'static str {
         return NAME;
     }
@@ -123,23 +115,17 @@ impl<E: 'static> App<E, Out<E>> for Spotify<E> where
         };
     }
 
-    fn send(&self, event: E) -> Result<(), mpsc::error::SendError<E>> {
+    fn send(&self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
         return self.in_sender.blocking_send(event);
     }
 
-    fn receive(&mut self) -> Result<Out<E>, mpsc::error::TryRecvError> {
+    fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
     }
 }
 
-async fn handle_spotify_task<E>(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, event_in: E) where
-    E: FromImage<E>,
-    E: FromImages<E>,
-    E: FromSelectedIndex<E>,
-    E: IntoIndex,
-    E: std::fmt::Debug,
-{
-    let _ = match event_in.into_index() {
+async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
+    let _ = match state.input_transformer.into_index(event) {
         Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
             {
                 let mut last_action = state.last_action.lock().unwrap();
@@ -173,12 +159,12 @@ async fn handle_spotify_task<E>(config: Arc<Config>, state: Arc<State>, sender: 
                 Some(url) => {
                     let image = Image::from_url(&url).await.map_err(|_| ());
                     let event_out = image.and_then(|image| {
-                        return E::from_image(image).map_err(|_| ());
+                        return state.output_transformer.from_image(image).map_err(|_| ());
                     });
 
                     match event_out {
                         Ok(event) => {
-                            let _ = sender.send(Out::Event(event)).await;
+                            let _ = sender.send(event.into()).await;
                             sleep(DELAY).await;
                             pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
                             render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
@@ -212,23 +198,19 @@ async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     }
 }
 
-async fn render_spotify_logo<E>(state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>) where
-    E: FromImage<E>,
-    E: FromSelectedIndex<E>,
-    E: std::fmt::Debug,
-{
-    match E::from_image(get_spotify_logo()) {
+async fn render_spotify_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) {
+    match state.output_transformer.from_image(get_spotify_logo()) {
         Err(_) => println!("[Spotify] could not render the spotify logo"),
         Ok(event) => {
-            let _ = sender.send(Out::Event(event)).await;
+            let _ = sender.send(event.into()).await;
         },
     }
 
     let playing = state.playing.lock().unwrap().clone();
     match playing {
-        Some(index) => match E::from_selected_index(index) {
+        Some(index) => match state.output_transformer.from_index_to_highlight(index) {
             Ok(event) => {
-                let _ = sender.send(Out::Event(event)).await;
+                let _ = sender.send(event.into()).await;
             },
             Err(e) => {
                 println!("Could not select index: {} ({})", index, e);
@@ -275,9 +257,7 @@ async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->
     return Ok(token_response.access_token.clone());
 }
 
-async fn start_or_resume_index<E>(token: String, state: Arc<State>, sender: Arc<mpsc::Sender<Out<E>>>, index: usize) -> Result<SpotifyTrack, SpotifyError> where
-    E: std::fmt::Debug,
-{
+async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, index: usize) -> Result<SpotifyTrack, SpotifyError> {
     println!("[Spotify] Playing track {}", index);
     let track = state.tracks.lock().unwrap().as_ref()
         .and_then(|tracks| tracks.get(index))
