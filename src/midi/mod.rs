@@ -8,6 +8,3 @@ pub use connections::*;
 pub use device::*;
 pub use devices::Devices;
 pub use error::Error;
-
-/// MIDI vendors
-pub mod launchpadpro;
