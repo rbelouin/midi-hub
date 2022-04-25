@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use crate::midi::{Error, EventTransformer, Connections, InputPort, OutputPort};
-use super::launchpadpro;
 
 pub mod config;
+
+// device types
 pub mod default;
+pub mod launchpadpro;
 
 pub struct Devices {
     devices: HashMap<String, Device>,
