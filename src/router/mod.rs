@@ -122,17 +122,15 @@ impl Router {
                     Ok(launchpad) => {
                         self.selection_app.render_app_colors(&mut launchpad.port);
 
-                        if self.selection_app.apps.len() > self.selection_app.selected_app {
-                            let event = self.selection_app.apps[self.selection_app.selected_app].receive();
-                            match event {
-                                Ok(Out::Server(command)) => {
-                                    let _ = self.server.send(command);
-                                },
-                                Ok(Out::Midi(event)) => {
-                                    let _ = launchpad.port.write(event);
-                                },
-                                _ => {},
-                            }
+                        let event = self.selection_app.receive();
+                        match event {
+                            Ok(Out::Server(command)) => {
+                                let _ = self.server.send(command);
+                            },
+                            Ok(Out::Midi(event)) => {
+                                let _ = launchpad.port.write(event);
+                            },
+                            _ => {},
                         }
 
                         match launchpad.port.read() {

@@ -1,5 +1,7 @@
+use tokio::sync::mpsc::error::TryRecvError;
+
 use crate::apps;
-use crate::apps::App;
+use crate::apps::{App, Out};
 
 use crate::midi::{EventTransformer, Writer};
 
@@ -40,12 +42,38 @@ impl Selection {
             .and_then(|event| writer.write(event))
             .unwrap_or_else(|err| eprintln!("[selection] could not render app colors: {}", err));
     }
+
+    // This one will be hard to test until we let Selection accept more generic apps
+    pub fn receive(&mut self) -> Result<Out, TryRecvError> {
+        if self.apps.len() > self.selected_app {
+            return self.apps[self.selected_app].receive();
+        } else {
+            return Err(TryRecvError::Disconnected);
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::midi::{Error, Event, Image};
     use super::*;
+
+    struct TestWriter {
+        midi_events: Vec<[u8; 4]>,
+        sysex_events: Vec<Vec<u8>>,
+    }
+
+    impl Writer for TestWriter {
+        fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error> {
+            self.midi_events.push(*event);
+            Ok(())
+        }
+
+        fn write_sysex(&mut self, event: &[u8]) -> Result<(), Error> {
+            self.sysex_events.push(Vec::from(event));
+            Ok(())
+        }
+    }
 
     struct Transformer {}
     impl EventTransformer for Transformer {
@@ -82,23 +110,6 @@ mod test {
             &TRANSFORMER,
             &TRANSFORMER,
         );
-
-        struct TestWriter {
-            midi_events: Vec<[u8; 4]>,
-            sysex_events: Vec<Vec<u8>>,
-        }
-
-        impl Writer for TestWriter {
-            fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error> {
-                self.midi_events.push(*event);
-                Ok(())
-            }
-
-            fn write_sysex(&mut self, event: &[u8]) -> Result<(), Error> {
-                self.sysex_events.push(Vec::from(event));
-                Ok(())
-            }
-        }
 
         let mut writer = TestWriter { midi_events: vec![], sysex_events: vec![] };
         selection_app.render_app_colors(&mut writer);
