@@ -50,13 +50,8 @@ impl Router {
             output.transformer,
         );
 
-        let spotify_app = apps::spotify::app::Spotify::new(
+        let selection_app = apps::selection::Selection::new(
             config.spotify.clone(),
-            launchpad.transformer,
-            launchpad.transformer,
-        );
-
-        let youtube_app = apps::youtube::app::Youtube::new(
             config.youtube.clone(),
             launchpad.transformer,
             launchpad.transformer,
@@ -68,10 +63,7 @@ impl Router {
             devices,
             // The forward app is not an app you can access via app selection yet
             forward_app: Box::new(forward_app),
-            selection_app: apps::selection::Selection {
-                apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
-                selected_app: 0,
-            },
+            selection_app,
         };
     }
 
