@@ -134,32 +134,11 @@ impl Router {
                         }
 
                         match launchpad.port.read() {
-                            Ok(Some(event)) => {
-                                let selected_app = launchpad.transformer.into_app_index(event.clone()).ok().flatten()
-                                    .and_then(|app_index| {
-                                        let selected_app = self.selection_app.apps.get(app_index as usize);
-                                        if selected_app.is_some() {
-                                            self.selection_app.selected_app = app_index as usize;
-                                        }
-                                        return selected_app;
-                                    });
-
-                                match selected_app {
-                                    Some(selected_app) => {
-                                        println!("Selecting {}", selected_app.get_name());
-                                        let _ = launchpad.transformer.from_image(selected_app.get_logo())
-                                            .and_then(|event| launchpad.port.write(event));
-                                    },
-                                    _ => {
-                                        match self.selection_app.apps.get(self.selection_app.selected_app) {
-                                            Some(app) => app.send(event)
-                                                .unwrap_or_else(|err| eprintln!("[{}] could not send event: {:?}", app.get_name(), err)),
-                                            None => eprintln!("No app found for index: {}", self.selection_app.selected_app),
-                                        }
-                                    },
-                                }
-                                Ok(())
-                            },
+                            Ok(Some(event)) => self.selection_app.send(&mut launchpad.port, event)
+                                .map_err(|err| {
+                                    eprintln!("[router] could not send event to the selection app: {}", err);
+                                    Error::WriteError
+                                }),
                             _ => Ok(()),
                         }
                     },

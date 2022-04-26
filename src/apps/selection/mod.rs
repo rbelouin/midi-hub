@@ -1,13 +1,14 @@
-use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 use crate::apps;
 use crate::apps::{App, Out};
 
-use crate::midi::{EventTransformer, Writer};
+use crate::midi::{Event, EventTransformer, Writer};
 
 pub struct Selection {
     pub apps: Vec<Box<dyn App>>,
     pub selected_app: usize,
+    input_transformer: &'static (dyn EventTransformer + Sync),
     output_transformer: &'static (dyn EventTransformer + Sync),
 }
 
@@ -33,6 +34,7 @@ impl Selection {
         return Selection {
             apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
             selected_app: 0,
+            input_transformer,
             output_transformer,
         };
     }
@@ -41,6 +43,34 @@ impl Selection {
         self.output_transformer.from_app_colors(self.apps.iter().map(|app| app.get_color()).collect())
             .and_then(|event| writer.write(event))
             .unwrap_or_else(|err| eprintln!("[selection] could not render app colors: {}", err));
+    }
+
+    // This one will be hard to test until we let Selection accept more generic apps
+    pub fn send<W: Writer>(&mut self, writer: &mut W, event: Event) -> Result<(), SendError<Event>> {
+        let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
+            .and_then(|app_index| {
+                let selected_app = self.apps.get(app_index as usize);
+                if selected_app.is_some() {
+                    self.selected_app = app_index as usize;
+                }
+                return selected_app;
+            });
+
+        match selected_app {
+            Some(selected_app) => {
+                println!("[selection] selecting {}", selected_app.get_name());
+                let _ = self.output_transformer.from_image(selected_app.get_logo())
+                    .and_then(|event| writer.write(event));
+            },
+            _ => {
+                match self.apps.get(self.selected_app) {
+                    Some(app) => app.send(event)
+                        .unwrap_or_else(|err| eprintln!("[selection][{}] could not send event: {}", app.get_name(), err)),
+                    None => eprintln!("No app found for index: {}", self.selected_app),
+                }
+            },
+        }
+        Ok(())
     }
 
     // This one will be hard to test until we let Selection accept more generic apps
