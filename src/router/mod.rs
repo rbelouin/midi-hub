@@ -120,9 +120,7 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
-                        let _ = launchpad.transformer.from_app_colors(
-                            self.selection_app.apps.iter().map(|app| app.get_color()).collect()
-                        ).and_then(|event| launchpad.port.write(event));
+                        self.selection_app.render_app_colors(&mut launchpad.port);
 
                         if self.selection_app.apps.len() > self.selection_app.selected_app {
                             let event = self.selection_app.apps[self.selection_app.selected_app].receive();
