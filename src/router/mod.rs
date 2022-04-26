@@ -30,8 +30,7 @@ pub struct Router {
     server: HttpServer,
     devices: Devices,
     forward_app: Box<dyn App>,
-    apps: Vec<Box<dyn App>>,
-    selected_app: usize,
+    selection_app: apps::selection::Selection,
 }
 
 impl Router {
@@ -69,8 +68,10 @@ impl Router {
             devices,
             // The forward app is not an app you can access via app selection yet
             forward_app: Box::new(forward_app),
-            apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
-            selected_app: 0,
+            selection_app: apps::selection::Selection {
+                apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
+                selected_app: 0,
+            },
         };
     }
 
@@ -128,11 +129,11 @@ impl Router {
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
                         let _ = launchpad.transformer.from_app_colors(
-                            self.apps.iter().map(|app| app.get_color()).collect()
+                            self.selection_app.apps.iter().map(|app| app.get_color()).collect()
                         ).and_then(|event| launchpad.port.write(event));
 
-                        if self.apps.len() > self.selected_app {
-                            let event = self.apps[self.selected_app].receive();
+                        if self.selection_app.apps.len() > self.selection_app.selected_app {
+                            let event = self.selection_app.apps[self.selection_app.selected_app].receive();
                             match event {
                                 Ok(Out::Server(command)) => {
                                     let _ = self.server.send(command);
@@ -148,9 +149,9 @@ impl Router {
                             Ok(Some(event)) => {
                                 let selected_app = launchpad.transformer.into_app_index(event.clone()).ok().flatten()
                                     .and_then(|app_index| {
-                                        let selected_app = self.apps.get(app_index as usize);
+                                        let selected_app = self.selection_app.apps.get(app_index as usize);
                                         if selected_app.is_some() {
-                                            self.selected_app = app_index as usize;
+                                            self.selection_app.selected_app = app_index as usize;
                                         }
                                         return selected_app;
                                     });
@@ -162,10 +163,10 @@ impl Router {
                                             .and_then(|event| launchpad.port.write(event));
                                     },
                                     _ => {
-                                        match self.apps.get(self.selected_app) {
+                                        match self.selection_app.apps.get(self.selection_app.selected_app) {
                                             Some(app) => app.send(event)
                                                 .unwrap_or_else(|err| eprintln!("[{}] could not send event: {:?}", app.get_name(), err)),
-                                            None => eprintln!("No app found for index: {}", self.selected_app),
+                                            None => eprintln!("No app found for index: {}", self.selection_app.selected_app),
                                         }
                                     },
                                 }

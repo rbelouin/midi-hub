@@ -6,6 +6,7 @@ pub use crate::midi::Event as MidiEvent;
 pub use crate::server::Command as ServerCommand;
 
 pub mod forward;
+pub mod selection;
 pub mod spotify;
 pub mod youtube;
 
