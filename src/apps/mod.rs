@@ -21,7 +21,7 @@ pub trait App {
     fn get_logo(&self) -> Image;
 
     /// Send an event to be handled by the application
-    fn send(&self, event: MidiEvent) -> Result<(), SendError<MidiEvent>>;
+    fn send(&mut self, event: MidiEvent) -> Result<(), SendError<MidiEvent>>;
 
     /// Poll events emitted by the application
     fn receive(&mut self) -> Result<Out, TryRecvError>;

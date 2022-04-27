@@ -4,7 +4,10 @@ use tokio::sync::mpsc::error::{SendError, TryRecvError};
 use crate::apps;
 use crate::apps::{App, Out};
 
-use crate::midi::{Event, EventTransformer};
+use crate::midi::{Event, EventTransformer, Image};
+
+pub const NAME: &str = "selection";
+pub const COLOR: [u8; 3] = [255, 255, 255];
 
 pub struct Selection {
     pub apps: Vec<Box<dyn App>>,
@@ -56,9 +59,23 @@ impl Selection {
                 .map_err(|err| format!("[selection] could not send app colors: {}", err)))
             .unwrap_or_else(|err| eprintln!("{}", err));
     }
+}
+
+impl App for Selection {
+    fn get_name(&self) -> &'static str {
+        return NAME;
+    }
+
+    fn get_color(&self) -> [u8; 3] {
+        return COLOR;
+    }
+
+    fn get_logo(&self) -> Image {
+        return Image { width: 0, height: 0, bytes: vec![] };
+    }
 
     // This one will be hard to test until we let Selection accept more generic apps
-    pub fn send(&mut self, event: Event) -> Result<(), SendError<Event>> {
+    fn send(&mut self, event: Event) -> Result<(), SendError<Event>> {
         let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
             .and_then(|app_index| {
                 let selected_app = self.apps.get(app_index as usize);
@@ -78,7 +95,7 @@ impl Selection {
                     .unwrap_or_else(|err| eprintln!("{}", err));
             },
             _ => {
-                match self.apps.get(self.selected_app) {
+                match self.apps.get_mut(self.selected_app) {
                     Some(app) => app.send(event)
                         .unwrap_or_else(|err| eprintln!("[selection][{}] could not send event: {}", app.get_name(), err)),
                     None => eprintln!("No app found for index: {}", self.selected_app),
@@ -89,7 +106,7 @@ impl Selection {
     }
 
     // This one will be hard to test until we let Selection accept more generic apps
-    pub fn receive(&mut self) -> Result<Out, TryRecvError> {
+    fn receive(&mut self) -> Result<Out, TryRecvError> {
         if let Ok(out) = self.out_receiver.try_recv() {
             return Ok(out);
         }
