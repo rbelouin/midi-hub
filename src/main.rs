@@ -49,15 +49,11 @@ fn get_command() -> Result<Command, String> {
 
 fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
     let devices = midi::devices::config::configure()?;
-    let forward = apps::forward::config::configure()?;
-    let spotify = apps::spotify::config::configure()?;
-    let youtube = apps::youtube::config::configure()?;
+    let apps = apps::configure()?;
 
     return Ok(router::RunConfig {
         devices,
-        forward,
-        spotify,
-        youtube,
+        apps,
     });
 }
 

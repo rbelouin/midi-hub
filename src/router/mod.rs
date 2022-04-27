@@ -20,9 +20,7 @@ const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 #[derive(Serialize, Deserialize)]
 pub struct RunConfig {
     pub devices: midi::devices::config::Config,
-    pub forward: apps::forward::config::Config,
-    pub spotify: apps::spotify::config::Config,
-    pub youtube: apps::youtube::config::Config,
+    pub apps: apps::Config,
 }
 
 pub struct Router {
@@ -30,7 +28,7 @@ pub struct Router {
     server: HttpServer,
     devices: Devices,
     forward_app: Box<dyn App>,
-    selection_app: apps::selection::Selection,
+    selection_app: Box<dyn App>,
 }
 
 impl Router {
@@ -45,14 +43,13 @@ impl Router {
         let launchpad = devices.get("launchpad").expect("launchpad device should be defined");
 
         let forward_app = apps::forward::app::Forward::new(
-            config.forward.clone(),
+            config.apps.forward.expect("forward should be defined"),
             input.transformer,
             output.transformer,
         );
 
-        let selection_app = apps::selection::Selection::new(
-            config.spotify.clone(),
-            config.youtube.clone(),
+        let selection_app = apps::selection::app::Selection::new(
+            config.apps.selection.expect("selection should be defined"),
             launchpad.transformer,
             launchpad.transformer,
         );
@@ -61,9 +58,8 @@ impl Router {
             term,
             server,
             devices,
-            // The forward app is not an app you can access via app selection yet
             forward_app: Box::new(forward_app),
-            selection_app,
+            selection_app: Box::new(selection_app),
         };
     }
 
