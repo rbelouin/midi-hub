@@ -94,7 +94,7 @@ impl App for Youtube {
         return get_logo();
     }
 
-    fn send(&self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
+    fn send(&mut self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
         return self.in_sender.blocking_send(event);
     }
 

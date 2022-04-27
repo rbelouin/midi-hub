@@ -42,7 +42,7 @@ impl App for Forward {
         return get_logo();
     }
 
-    fn send(&self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
+    fn send(&mut self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
         return self.sender.blocking_send(event);
     }
 

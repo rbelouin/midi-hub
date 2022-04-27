@@ -30,8 +30,7 @@ pub struct Router {
     server: HttpServer,
     devices: Devices,
     forward_app: Box<dyn App>,
-    apps: Vec<Box<dyn App>>,
-    selected_app: usize,
+    selection_app: apps::selection::Selection,
 }
 
 impl Router {
@@ -51,13 +50,8 @@ impl Router {
             output.transformer,
         );
 
-        let spotify_app = apps::spotify::app::Spotify::new(
+        let selection_app = apps::selection::Selection::new(
             config.spotify.clone(),
-            launchpad.transformer,
-            launchpad.transformer,
-        );
-
-        let youtube_app = apps::youtube::app::Youtube::new(
             config.youtube.clone(),
             launchpad.transformer,
             launchpad.transformer,
@@ -69,8 +63,7 @@ impl Router {
             devices,
             // The forward app is not an app you can access via app selection yet
             forward_app: Box::new(forward_app),
-            apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
-            selected_app: 0,
+            selection_app,
         };
     }
 
@@ -127,50 +120,23 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
-                        let _ = launchpad.transformer.from_app_colors(
-                            self.apps.iter().map(|app| app.get_color()).collect()
-                        ).and_then(|event| launchpad.port.write(event));
-
-                        if self.apps.len() > self.selected_app {
-                            let event = self.apps[self.selected_app].receive();
-                            match event {
-                                Ok(Out::Server(command)) => {
-                                    let _ = self.server.send(command);
-                                },
-                                Ok(Out::Midi(event)) => {
-                                    let _ = launchpad.port.write(event);
-                                },
-                                _ => {},
-                            }
+                        let event = self.selection_app.receive();
+                        match event {
+                            Ok(Out::Server(command)) => {
+                                let _ = self.server.send(command);
+                            },
+                            Ok(Out::Midi(event)) => {
+                                let _ = launchpad.port.write(event);
+                            },
+                            _ => {},
                         }
 
                         match launchpad.port.read() {
-                            Ok(Some(event)) => {
-                                let selected_app = launchpad.transformer.into_app_index(event.clone()).ok().flatten()
-                                    .and_then(|app_index| {
-                                        let selected_app = self.apps.get(app_index as usize);
-                                        if selected_app.is_some() {
-                                            self.selected_app = app_index as usize;
-                                        }
-                                        return selected_app;
-                                    });
-
-                                match selected_app {
-                                    Some(selected_app) => {
-                                        println!("Selecting {}", selected_app.get_name());
-                                        let _ = launchpad.transformer.from_image(selected_app.get_logo())
-                                            .and_then(|event| launchpad.port.write(event));
-                                    },
-                                    _ => {
-                                        match self.apps.get(self.selected_app) {
-                                            Some(app) => app.send(event)
-                                                .unwrap_or_else(|err| eprintln!("[{}] could not send event: {:?}", app.get_name(), err)),
-                                            None => eprintln!("No app found for index: {}", self.selected_app),
-                                        }
-                                    },
-                                }
-                                Ok(())
-                            },
+                            Ok(Some(event)) => self.selection_app.send(event)
+                                .map_err(|err| {
+                                    eprintln!("[router] could not send event to the selection app: {}", err);
+                                    Error::WriteError
+                                }),
                             _ => Ok(()),
                         }
                     },

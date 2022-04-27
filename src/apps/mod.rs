@@ -6,6 +6,7 @@ pub use crate::midi::Event as MidiEvent;
 pub use crate::server::Command as ServerCommand;
 
 pub mod forward;
+pub mod selection;
 pub mod spotify;
 pub mod youtube;
 
@@ -20,13 +21,13 @@ pub trait App {
     fn get_logo(&self) -> Image;
 
     /// Send an event to be handled by the application
-    fn send(&self, event: MidiEvent) -> Result<(), SendError<MidiEvent>>;
+    fn send(&mut self, event: MidiEvent) -> Result<(), SendError<MidiEvent>>;
 
     /// Poll events emitted by the application
     fn receive(&mut self) -> Result<Out, TryRecvError>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Out {
     Midi(MidiEvent),
     Server(ServerCommand),

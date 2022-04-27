@@ -6,7 +6,7 @@ use portmidi::{InputPort, OutputPort, MidiEvent, MidiMessage};
 pub use crate::image::Image;
 use super::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     Midi([u8; 4]),
     SysEx(Vec<u8>),
