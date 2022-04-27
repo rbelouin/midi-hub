@@ -132,7 +132,7 @@ impl Router {
                         }
 
                         match launchpad.port.read() {
-                            Ok(Some(event)) => self.selection_app.send(&mut launchpad.port, event)
+                            Ok(Some(event)) => self.selection_app.send(event)
                                 .map_err(|err| {
                                     eprintln!("[router] could not send event to the selection app: {}", err);
                                     Error::WriteError

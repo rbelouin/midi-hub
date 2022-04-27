@@ -4,7 +4,7 @@ use tokio::sync::mpsc::error::{SendError, TryRecvError};
 use crate::apps;
 use crate::apps::{App, Out};
 
-use crate::midi::{Event, EventTransformer, Writer};
+use crate::midi::{Event, EventTransformer};
 
 pub struct Selection {
     pub apps: Vec<Box<dyn App>>,
@@ -58,7 +58,7 @@ impl Selection {
     }
 
     // This one will be hard to test until we let Selection accept more generic apps
-    pub fn send<W: Writer>(&mut self, writer: &mut W, event: Event) -> Result<(), SendError<Event>> {
+    pub fn send(&mut self, event: Event) -> Result<(), SendError<Event>> {
         let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
             .and_then(|app_index| {
                 let selected_app = self.apps.get(app_index as usize);
@@ -71,8 +71,11 @@ impl Selection {
         match selected_app {
             Some(selected_app) => {
                 println!("[selection] selecting {}", selected_app.get_name());
-                let _ = self.output_transformer.from_image(selected_app.get_logo())
-                    .and_then(|event| writer.write(event));
+                self.output_transformer.from_image(selected_app.get_logo())
+                    .map_err(|err| format!("[selection] could not transform the image: {}", err))
+                    .and_then(|event| self.out_sender.blocking_send(event.into())
+                        .map_err(|err| format!("[selection] could not send the image: {}", err)))
+                    .unwrap_or_else(|err| eprintln!("{}", err));
             },
             _ => {
                 match self.apps.get(self.selected_app) {
