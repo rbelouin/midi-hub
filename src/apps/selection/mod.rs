@@ -1,3 +1,4 @@
+use tokio::sync::mpsc::{Sender, Receiver, channel};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 use crate::apps;
@@ -10,6 +11,8 @@ pub struct Selection {
     pub selected_app: usize,
     input_transformer: &'static (dyn EventTransformer + Sync),
     output_transformer: &'static (dyn EventTransformer + Sync),
+    out_sender: Sender<Out>,
+    out_receiver: Receiver<Out>,
 }
 
 impl Selection {
@@ -31,18 +34,27 @@ impl Selection {
             output_transformer,
         );
 
-        return Selection {
+        let (out_sender, out_receiver) = channel::<Out>(32);
+        let selection = Selection {
             apps: vec![Box::new(spotify_app), Box::new(youtube_app)],
             selected_app: 0,
             input_transformer,
             output_transformer,
+            out_sender,
+            out_receiver,
         };
+
+        selection.render_app_colors();
+
+        return selection;
     }
 
-    pub fn render_app_colors<W: Writer>(&self, writer: &mut W) {
+    fn render_app_colors(&self) {
         self.output_transformer.from_app_colors(self.apps.iter().map(|app| app.get_color()).collect())
-            .and_then(|event| writer.write(event))
-            .unwrap_or_else(|err| eprintln!("[selection] could not render app colors: {}", err));
+            .map_err(|err| format!("[selection] could not render app colors: {}", err))
+            .and_then(|event| self.out_sender.blocking_send(event.into())
+                .map_err(|err| format!("[selection] could not send app colors: {}", err)))
+            .unwrap_or_else(|err| eprintln!("{}", err));
     }
 
     // This one will be hard to test until we let Selection accept more generic apps
@@ -75,6 +87,10 @@ impl Selection {
 
     // This one will be hard to test until we let Selection accept more generic apps
     pub fn receive(&mut self) -> Result<Out, TryRecvError> {
+        if let Ok(out) = self.out_receiver.try_recv() {
+            return Ok(out);
+        }
+
         if self.apps.len() > self.selected_app {
             return self.apps[self.selected_app].receive();
         } else {
@@ -87,23 +103,6 @@ impl Selection {
 mod test {
     use crate::midi::{Error, Event, Image};
     use super::*;
-
-    struct TestWriter {
-        midi_events: Vec<[u8; 4]>,
-        sysex_events: Vec<Vec<u8>>,
-    }
-
-    impl Writer for TestWriter {
-        fn write_midi(&mut self, event: &[u8; 4]) -> Result<(), Error> {
-            self.midi_events.push(*event);
-            Ok(())
-        }
-
-        fn write_sysex(&mut self, event: &[u8]) -> Result<(), Error> {
-            self.sysex_events.push(Vec::from(event));
-            Ok(())
-        }
-    }
 
     struct Transformer {}
     impl EventTransformer for Transformer {
@@ -125,8 +124,8 @@ mod test {
     const TRANSFORMER: Transformer = Transformer {};
 
     #[test]
-    fn test_render_app_colors() {
-        let selection_app = Selection::new(
+    fn test_render_app_colors_on_instantiation() {
+        let mut selection_app = Selection::new(
             apps::spotify::config::Config {
                 playlist_id: "playlist_id".to_string(),
                 client_id: "client_id".to_string(),
@@ -141,9 +140,8 @@ mod test {
             &TRANSFORMER,
         );
 
-        let mut writer = TestWriter { midi_events: vec![], sysex_events: vec![] };
-        selection_app.render_app_colors(&mut writer);
+        let event = selection_app.receive().expect("an event should be received");
 
-        assert_eq!(writer.sysex_events, vec![vec![0, 255, 0, 255, 0, 0]]);
+        assert_eq!(event, Event::SysEx(vec![0, 255, 0, 255, 0, 0]).into());
     }
 }

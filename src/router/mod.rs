@@ -120,8 +120,6 @@ impl Router {
 
                 let launchpad_result = match launchpad.as_mut() {
                     Ok(launchpad) => {
-                        self.selection_app.render_app_colors(&mut launchpad.port);
-
                         let event = self.selection_app.receive();
                         match event {
                             Ok(Out::Server(command)) => {

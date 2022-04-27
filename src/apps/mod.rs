@@ -27,7 +27,7 @@ pub trait App {
     fn receive(&mut self) -> Result<Out, TryRecvError>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Out {
     Midi(MidiEvent),
     Server(ServerCommand),
