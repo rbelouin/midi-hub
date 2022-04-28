@@ -4,6 +4,7 @@ use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 use crate::image::Image;
+use crate::midi::EventTransformer;
 pub use crate::midi::Event as MidiEvent;
 pub use crate::server::Command as ServerCommand;
 
@@ -35,6 +36,61 @@ pub struct Config {
     pub spotify: Option<spotify::config::Config>,
     pub youtube: Option<youtube::config::Config>,
     pub selection: Option<selection::config::Config>,
+}
+
+impl Config {
+    pub fn start(
+        &self,
+        app_name: &str,
+        input_transformer: &'static (dyn EventTransformer + Sync),
+        output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Option<Box<dyn App>> {
+        return match app_name {
+            forward::app::NAME => {
+                let config = self.forward.as_ref()?;
+                Some(Box::new(forward::app::Forward::new(config.clone(), input_transformer, output_transformer)))
+            }
+            spotify::app::NAME => {
+                let config = self.spotify.as_ref()?;
+                Some(Box::new(spotify::app::Spotify::new(config.clone(), input_transformer, output_transformer)))
+            }
+            youtube::app::NAME => {
+                let config = self.youtube.as_ref()?;
+                Some(Box::new(youtube::app::Youtube::new(config.clone(), input_transformer, output_transformer)))
+            }
+            selection::app::NAME => {
+                let config = self.selection.as_ref()?;
+                Some(Box::new(selection::app::Selection::new(config.clone(), input_transformer, output_transformer)))
+            }
+            _ => {
+                eprintln!("[apps] unknown application: {}", app_name);
+                None
+            },
+        }
+    }
+
+    pub fn start_all(
+        &self,
+        input_transformer: &'static (dyn EventTransformer + Sync),
+        output_transformer: &'static (dyn EventTransformer + Sync),
+    ) -> Vec<Box<dyn App>> {
+        let toml_config = toml::Value::try_from(&self);
+        let app_config = match toml_config {
+            Ok(toml::Value::Table(table)) => table,
+            _ => toml::map::Map::new(),
+        };
+        let app_names = app_config.keys();
+
+        let mut apps: Vec<Box<dyn App>> = vec![];
+
+        for app_name in app_names {
+            if let Some(app) = self.start(app_name.as_str(), input_transformer, output_transformer) {
+                apps.push(app);
+            }
+        }
+
+        return apps;
+    }
 }
 
 pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
@@ -110,5 +166,65 @@ impl From<MidiEvent> for Out {
 impl From<ServerCommand> for Out {
     fn from(command: ServerCommand) -> Self {
         return Out::Server(command);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn get_test_config() -> Config {
+        return toml::from_str(r#"
+            [forward]
+            [youtube]
+            api_key = "megaplop"
+            playlist_id = "woohoo"
+        "#).unwrap();
+    }
+
+    #[test]
+    pub fn test_start_missing_app() {
+        let app = get_test_config().start(
+            "spotify",
+            crate::midi::devices::default::transformer(),
+            crate::midi::devices::default::transformer(),
+        );
+
+        assert!(app.is_none());
+    }
+
+    #[test]
+    pub fn test_start_configured_app() {
+        let app = get_test_config().start(
+            "forward",
+            crate::midi::devices::default::transformer(),
+            crate::midi::devices::default::transformer(),
+        );
+
+        assert!(app.is_some());
+        assert_eq!(app.unwrap().get_name(), "forward");
+    }
+
+    #[test]
+    pub fn test_start_all_with_no_apps() {
+        let config: Config = toml::from_str(r#"
+        "#).unwrap();
+
+        let apps = config.start_all(
+            crate::midi::devices::default::transformer(),
+            crate::midi::devices::default::transformer(),
+        );
+
+        assert_eq!(apps.len(), 0);
+    }
+
+    #[test]
+    pub fn test_start_all_with_two_apps() {
+        let apps = get_test_config().start_all(
+            crate::midi::devices::default::transformer(),
+            crate::midi::devices::default::transformer(),
+        );
+
+        assert_eq!(apps.iter().map(|app| app.get_name()).collect::<Vec<&str>>(), vec!["forward", "youtube"]);
     }
 }

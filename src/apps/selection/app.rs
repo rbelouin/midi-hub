@@ -1,7 +1,6 @@
 use tokio::sync::mpsc::{Sender, Receiver, channel};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
-use crate::apps;
 use crate::apps::{App, Out};
 
 use crate::midi::{Event, EventTransformer, Image};
@@ -26,35 +25,9 @@ impl Selection {
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
-        let mut apps: Vec<Box<dyn App>> = vec![];
-
-        if let Some(forward_config) = config.apps.forward {
-            apps.push(Box::new(apps::forward::app::Forward::new(
-                forward_config,
-                input_transformer,
-                output_transformer,
-            )));
-        }
-
-        if let Some(spotify_config) = config.apps.spotify {
-            apps.push(Box::new(apps::spotify::app::Spotify::new(
-                spotify_config,
-                input_transformer,
-                output_transformer,
-            )));
-        }
-
-        if let Some(youtube_config) = config.apps.youtube {
-            apps.push(Box::new(apps::youtube::app::Youtube::new(
-                youtube_config,
-                input_transformer,
-                output_transformer,
-            )));
-        }
-
         let (out_sender, out_receiver) = channel::<Out>(32);
         let selection = Selection {
-            apps,
+            apps: config.apps.start_all(input_transformer, output_transformer),
             selected_app: 0,
             input_transformer,
             output_transformer,
@@ -137,6 +110,7 @@ impl App for Selection {
 #[cfg(test)]
 mod test {
     use crate::midi::{Error, Event, Image};
+    use crate::apps;
     use super::*;
 
     struct Transformer {}
