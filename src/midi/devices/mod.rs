@@ -17,10 +17,22 @@ impl Devices {
         return self.devices.get(id);
     }
 
-    pub fn get_port<'a>(&self, id: &str, connections: &'a Connections) -> Result<DeviceWithPort<'a>, Error> {
+    pub fn get_input_port<'a>(&self, id: &str, connections: &'a Connections) -> Result<DeviceWithInputPort<'a>, Error> {
         let device = self.get(id).ok_or(Error::DeviceNotFound)?;
-        let port = device.get_port(connections)?;
-        Ok(DeviceWithPort {
+        let port = device.get_input_port(connections)?;
+        Ok(DeviceWithInputPort {
+            id: device.id.clone(),
+            name: device.name.clone(),
+            device_type: device.device_type.clone(),
+            transformer: device.transformer,
+            port,
+        })
+    }
+
+    pub fn get_output_port<'a>(&self, id: &str, connections: &'a Connections) -> Result<DeviceWithOutputPort<'a>, Error> {
+        let device = self.get(id).ok_or(Error::DeviceNotFound)?;
+        let port = device.get_output_port(connections)?;
+        Ok(DeviceWithOutputPort {
             id: device.id.clone(),
             name: device.name.clone(),
             device_type: device.device_type.clone(),
@@ -58,15 +70,27 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn get_port<'a>(&self, connections: &'a Connections) -> Result<(InputPort<'a>, OutputPort<'a>), Error> {
-        return connections.create_bidirectional_ports(&self.name);
+    pub fn get_input_port<'a>(&self, connections: &'a Connections) -> Result<InputPort<'a>, Error> {
+        return connections.create_input_port(&self.name);
+    }
+
+    pub fn get_output_port<'a>(&self, connections: &'a Connections) -> Result<OutputPort<'a>, Error> {
+        return connections.create_output_port(&self.name);
     }
 }
 
-pub struct DeviceWithPort<'a> {
+pub struct DeviceWithInputPort<'a> {
     pub id: String,
     pub name: String,
     pub device_type: config::DeviceType,
     pub transformer: &'static (dyn EventTransformer + Sync),
-    pub port: (InputPort<'a>, OutputPort<'a>),
+    pub port: InputPort<'a>,
+}
+
+pub struct DeviceWithOutputPort<'a> {
+    pub id: String,
+    pub name: String,
+    pub device_type: config::DeviceType,
+    pub transformer: &'static (dyn EventTransformer + Sync),
+    pub port: OutputPort<'a>,
 }

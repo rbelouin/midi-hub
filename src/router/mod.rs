@@ -1,5 +1,6 @@
 extern crate signal_hook as sh;
 
+use std::collections::HashMap;
 use std::convert::From;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -7,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Serialize, Deserialize};
+use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::apps;
 use crate::apps::{App, Out};
@@ -18,52 +20,48 @@ const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Serialize, Deserialize)]
-pub struct RunConfig {
+pub struct Config {
     pub devices: midi::devices::config::Config,
-    pub forward: apps::forward::config::Config,
-    pub spotify: apps::spotify::config::Config,
-    pub youtube: apps::youtube::config::Config,
+    pub apps: apps::Config,
+    pub links: Links,
 }
+
+pub type Links = HashMap<String, (String, String)>;
 
 pub struct Router {
     term: Arc<AtomicBool>,
     server: HttpServer,
     devices: Devices,
-    forward_app: Box<dyn App>,
-    selection_app: apps::selection::Selection,
+    links: Vec<(Box<dyn App>, String, String)>,
 }
 
 impl Router {
-    pub fn new(config: RunConfig) -> Self {
+    pub fn new(config: Config) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
         let server = HttpServer::start();
 
         let devices = Devices::from(&config.devices);
-        let input = devices.get("input").expect("input device should be defined");
-        let output = devices.get("output").expect("output device should be defined");
-        let launchpad = devices.get("launchpad").expect("launchpad device should be defined");
+        let mut links = vec![];
 
-        let forward_app = apps::forward::app::Forward::new(
-            config.forward.clone(),
-            input.transformer,
-            output.transformer,
-        );
+        for (app_name, (input_name, output_name)) in &config.links {
+            let input = devices.get(input_name.as_str())
+                .expect(format!("{} is set as an input device for {}, but needs to be configured", input_name, app_name).as_str());
 
-        let selection_app = apps::selection::Selection::new(
-            config.spotify.clone(),
-            config.youtube.clone(),
-            launchpad.transformer,
-            launchpad.transformer,
-        );
+            let output = devices.get(output_name.as_str())
+                .expect(format!("{} is set as an output device for {}, but needs to be configured", output_name, app_name).as_str());
+
+            let app = config.apps.start(app_name, input.transformer, output.transformer)
+                .expect(format!("The {} application needs to be configured", app_name).as_str());
+
+            links.push((app, input_name.clone(), output_name.clone()));
+        }
 
         return Router {
             term,
             server,
             devices,
-            // The forward app is not an app you can access via app selection yet
-            forward_app: Box::new(forward_app),
-            selection_app,
+            links,
         };
     }
 
@@ -80,80 +78,102 @@ impl Router {
 
     fn run_one_cycle(&mut self, start: Instant) -> Result<(), Error> {
         return Connections::new().and_then(|connections| {
-            let mut input = self.devices.get_port("input", &connections);
-            let mut output = self.devices.get_port("output", &connections);
-            let mut launchpad = self.devices.get_port("launchpad", &connections);
+            let mut resolved_links = vec![];
 
-            let mut result = Ok(());
+            for (app, input_name, output_name) in &mut self.links {
+                let input = self.devices.get_input_port(input_name.as_str(), &connections);
+                let output = self.devices.get_output_port(output_name.as_str(), &connections);
+                resolved_links.push((app, input, output));
+            }
 
-            while !self.term.load(Ordering::Relaxed) && result.is_ok() && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL {
-                let input_result = match input.as_mut() {
-                    Ok(input) => {
-                        match Reader::read(&mut input.port) {
-                            Ok(Some(event)) => self.forward_app.send(event),
-                            _  => Ok(()),
-                        }
-                    },
-                    _ => {
-                        Ok(())
-                    },
-                };
+            let mut execution = Ok(());
 
-                let output_result = match output.as_mut() {
-                    Ok(output) => {
-                        let event = self.forward_app.receive();
-                        match event {
-                            Ok(Out::Server(command)) => {
-                                self.server.send(command);
-                                Ok(())
-                            },
-                            Ok(Out::Midi(event)) => {
-                                output.port.write(event)
-                            },
-                            _ => Ok(()),
-                        }
-                    },
-                    _ => {
-                        Ok(())
-                    }
-                };
+            while !self.term.load(Ordering::Relaxed) && execution.is_ok() && start.elapsed() < MIDI_DEVICE_POLL_INTERVAL {
+                // If no application could read from/write to any devices, we’ll fail the execution
+                // so that devices get pulled again.
+                execution = Err(Error::DeviceNotFound);
 
-                let launchpad_result = match launchpad.as_mut() {
-                    Ok(launchpad) => {
-                        let event = self.selection_app.receive();
-                        match event {
-                            Ok(Out::Server(command)) => {
-                                let _ = self.server.send(command);
-                            },
-                            Ok(Out::Midi(event)) => {
-                                let _ = launchpad.port.write(event);
-                            },
-                            _ => {},
-                        }
-
-                        match launchpad.port.read() {
-                            Ok(Some(event)) => self.selection_app.send(event)
-                                .map_err(|err| {
-                                    eprintln!("[router] could not send event to the selection app: {}", err);
-                                    Error::WriteError
+                for (app, input, output) in &mut resolved_links {
+                    let input_execution = match input.as_mut() {
+                        Ok(input) => {
+                            match Reader::read(&mut input.port) {
+                                Ok(Some(event)) => app.send(event).unwrap_or_else(|err| {
+                                    eprintln!("[router] could not send event to app {}: {}", app.get_name(), err);
                                 }),
-                            _ => Ok(()),
-                        }
-                    },
-                    Err(e) => {
-                        eprintln!("Error with launchpad: {}", e);
-                        Err(*e)
-                    },
-                };
+                                Err(err) => eprintln!("[router] error when reading event from device {}: {}", input.id, err),
+                                _ => {},
+                            }
+                            Ok(())
+                        },
+                        Err(err) => Err(*err),
+                    };
 
-                result = input_result.or(output_result).or(launchpad_result);
-                match result {
+                    let output_execution = match output.as_mut() {
+                        Ok(output) => {
+                            match app.receive() {
+                                Ok(Out::Server(command)) => {
+                                    self.server.send(command);
+                                },
+                                Ok(Out::Midi(event)) => output.port.write(event).unwrap_or_else(|err| {
+                                    eprintln!("[router] error when writing event to device {}: {}", output.id, err);
+                                }),
+                                Err(TryRecvError::Disconnected) => {
+                                    eprintln!("[router] app has disconnected: {}", app.get_name());
+                                },
+                                _ => {},
+                            }
+                            Ok(())
+                        },
+                        Err(err) => Err(*err),
+                    };
+
+                    execution = execution.or(input_execution.and(output_execution));
+                }
+
+                match execution {
                     Ok(_) => thread::sleep(MIDI_EVENT_POLL_INTERVAL),
                     _ => thread::sleep(MIDI_DEVICE_POLL_INTERVAL),
                 }
             }
 
-            return result;
+            return execution;
         });
     }
+}
+
+pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
+    let devices = midi::devices::config::configure()?;
+    let apps = apps::configure()?;
+
+    let app_names = apps.get_configured_app_names();
+    let links = configure_links(app_names)?;
+
+    return Ok(Config {
+        devices,
+        apps,
+        links,
+    });
+}
+
+fn configure_links(app_names: Vec<String>) -> Result<HashMap<String, (String, String)>, Box<dyn std::error::Error>> {
+    let mut links = HashMap::new();
+
+    for app_name in app_names {
+        let mut input_name = String::new();
+        let mut output_name = String::new();
+
+        println!("[router] what device do you want to use as an input for this app: {}?", app_name);
+        std::io::stdin().read_line(&mut input_name)?;
+        let input_name = input_name.trim().to_string();
+        println!("");
+
+        println!("[router] what device do you want to use as an output for this app: {}?", app_name);
+        std::io::stdin().read_line(&mut output_name)?;
+        let output_name = output_name.trim().to_string();
+        println!("");
+
+        links.insert(app_name, (input_name, output_name));
+    }
+
+    return Ok(links);
 }

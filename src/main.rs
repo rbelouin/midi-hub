@@ -19,7 +19,7 @@ enum Command {
 
 fn main() {
     let result = get_command().and_then(|command| match command {
-        Command::INIT => init_config().map_err(|err| format!("{}", err))
+        Command::INIT => router::configure().map_err(|err| format!("{}", err))
             .and_then(|config| toml::to_string(&config).map_err(|err| format!("{}", err)))
             .map(|config| {
                 println!("You can copy/paste the following to your config.toml:\n");
@@ -47,21 +47,7 @@ fn get_command() -> Result<Command, String> {
     }
 }
 
-fn init_config() -> Result<router::RunConfig, Box<dyn std::error::Error>> {
-    let devices = midi::devices::config::configure()?;
-    let forward = apps::forward::config::configure()?;
-    let spotify = apps::spotify::config::configure()?;
-    let youtube = apps::youtube::config::configure()?;
-
-    return Ok(router::RunConfig {
-        devices,
-        forward,
-        spotify,
-        youtube,
-    });
-}
-
-fn read_config() -> Result<router::RunConfig, String> {
+fn read_config() -> Result<router::Config, String> {
     let mut config_file = std::env::var("XDG_CONFIG_HOME").map(|xdg_config_home| PathBuf::from(xdg_config_home))
         .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".config")))
         .unwrap_or_else(|_| PathBuf::from("."));
