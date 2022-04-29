@@ -64,15 +64,21 @@ impl Connections {
     }
 
     pub fn create_input_port(&self, name: &String) -> Result<InputPort, Error> {
+        println!("[midi] initializing input {}", name);
         let device = self.input_devices.get(name).ok_or(Error::DeviceNotFound)?;
-        return self.context.input_port(device.clone(), BUFFER_SIZE)
-            .map_err(|_| Error::PortInitializationError);
+        return self.context.input_port(device.clone(), BUFFER_SIZE).map_err(|err| {
+            eprintln!("[midi] error when initializing input {}: {}", name, err);
+            Error::PortInitializationError
+        });
     }
 
     pub fn create_output_port(&self, name: &String) -> Result<OutputPort, Error> {
+        println!("[midi] initializing output {}", name);
         let device = self.output_devices.get(name).ok_or(Error::DeviceNotFound)?;
-        return self.context.output_port(device.clone(), BUFFER_SIZE)
-            .map_err(|_| Error::PortInitializationError);
+        return self.context.output_port(device.clone(), BUFFER_SIZE).map_err(|err| {
+            eprintln!("[midi] error when initializing output {}: {}", name, err);
+            Error::PortInitializationError
+        });
     }
 
     pub fn create_bidirectional_ports(&self, name: &String) -> Result<(InputPort, OutputPort), Error> {
