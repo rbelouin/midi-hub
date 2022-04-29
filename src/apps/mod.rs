@@ -74,22 +74,19 @@ impl Config {
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Vec<Box<dyn App>> {
+        return self.get_configured_app_names().iter().flat_map(|name| {
+            self.start(name.as_str(), input_transformer, output_transformer)
+        }).collect();
+    }
+
+    pub fn get_configured_app_names(&self) -> Vec<String> {
         let toml_config = toml::Value::try_from(&self);
         let app_config = match toml_config {
             Ok(toml::Value::Table(table)) => table,
             _ => toml::map::Map::new(),
         };
-        let app_names = app_config.keys();
 
-        let mut apps: Vec<Box<dyn App>> = vec![];
-
-        for app_name in app_names {
-            if let Some(app) = self.start(app_name.as_str(), input_transformer, output_transformer) {
-                apps.push(app);
-            }
-        }
-
-        return apps;
+        return app_config.keys().map(|key| key.to_string()).collect::<Vec<String>>();
     }
 }
 

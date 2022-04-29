@@ -1,5 +1,6 @@
 extern crate signal_hook as sh;
 
+use std::collections::HashMap;
 use std::convert::From;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -18,10 +19,13 @@ const MIDI_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(10_000);
 const MIDI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Serialize, Deserialize)]
-pub struct RunConfig {
+pub struct Config {
     pub devices: midi::devices::config::Config,
     pub apps: apps::Config,
+    pub links: Links,
 }
+
+pub type Links = HashMap<String, (String, String)>;
 
 pub struct Router {
     term: Arc<AtomicBool>,
@@ -32,7 +36,7 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn new(config: RunConfig) -> Self {
+    pub fn new(config: Config) -> Self {
         let term = Arc::new(AtomicBool::new(false));
 
         let server = HttpServer::start();
@@ -152,4 +156,41 @@ impl Router {
             return result;
         });
     }
+}
+
+pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
+    let devices = midi::devices::config::configure()?;
+    let apps = apps::configure()?;
+
+    let app_names = apps.get_configured_app_names();
+    let links = configure_links(app_names)?;
+
+    return Ok(Config {
+        devices,
+        apps,
+        links,
+    });
+}
+
+fn configure_links(app_names: Vec<String>) -> Result<HashMap<String, (String, String)>, Box<dyn std::error::Error>> {
+    let mut links = HashMap::new();
+
+    for app_name in app_names {
+        let mut input_name = String::new();
+        let mut output_name = String::new();
+
+        println!("[router] what device do you want to use as an input for this app: {}?", app_name);
+        std::io::stdin().read_line(&mut input_name)?;
+        let input_name = input_name.trim().to_string();
+        println!("");
+
+        println!("[router] what device do you want to use as an output for this app: {}?", app_name);
+        std::io::stdin().read_line(&mut output_name)?;
+        let output_name = output_name.trim().to_string();
+        println!("");
+
+        links.insert(app_name, (input_name, output_name));
+    }
+
+    return Ok(links);
 }
