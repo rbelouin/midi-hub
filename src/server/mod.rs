@@ -14,6 +14,7 @@ use warp::ws::{Message, WebSocket, Ws};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Command {
     SpotifyPlay { track_id: String, access_token: String },
+    SpotifyPause,
     YoutubePlay { video_id: String },
 }
 

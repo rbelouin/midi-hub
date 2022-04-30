@@ -135,16 +135,15 @@ async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc
             let s = Arc::clone(&state);
             let playing = *s.playing.lock().unwrap();
             if playing == Some(index) {
-                let res = client::player::pause(token).await;
-                if res.is_ok() {
-                    {
-                        let s = Arc::clone(&state);
-                        let mut playing = s.playing.lock().unwrap();
-                        *playing = None;
-                    }
-                    render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+                sender.send(ServerCommand::SpotifyPause.into()).await
+                    .unwrap_or_else(|err| eprintln!("[spotify] could not send pause command: {}", err));
+                {
+                    let s = Arc::clone(&state);
+                    let mut playing = s.playing.lock().unwrap();
+                    *playing = None;
                 }
-                return res;
+                render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+                return Ok(());
             }
 
             let track = start_or_resume_index(token, Arc::clone(&state), Arc::clone(&sender), index.into()).await;

@@ -99,6 +99,10 @@
         youtubePlayer = undefined;
       }
       playSpotifyTrack(command.SpotifyPlay.track_id, command.SpotifyPlay.access_token);
+    } else if (command === 'SpotifyPause') {
+      if (spotifyPlayer) {
+        spotifyPlayer.pause();
+      }
     } else if (command.YoutubePlay) {
       document.querySelector('[data-screen]').dataset.screen = 'youtube';
       if (spotifyPlayer) { spotifyPlayer.pause(); }
