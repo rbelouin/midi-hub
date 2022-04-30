@@ -5,9 +5,9 @@ use tokio::time::sleep;
 use std::{future::Future, sync::{Arc, Mutex}};
 use std::time::{Duration, Instant};
 
-use crate::apps::{App, Out, ServerCommand};
+use crate::apps::{App, In, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{Event, EventTransformer};
+use crate::midi::EventTransformer;
 
 use super::config::Config;
 use super::client;
@@ -29,7 +29,7 @@ struct State {
 }
 
 pub struct Spotify {
-    in_sender: mpsc::Sender<Event>,
+    in_sender: mpsc::Sender<In>,
     out_receiver: mpsc::Receiver<Out>,
 }
 
@@ -49,7 +49,7 @@ impl Spotify {
             playing: Mutex::new(None),
         });
 
-        let (in_sender, mut in_receiver) = mpsc::channel::<Event>(32);
+        let (in_sender, mut in_receiver) = mpsc::channel::<In>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let rt = Builder::new_current_thread()
@@ -72,7 +72,7 @@ impl Spotify {
                     };
 
                     if time_elapsed > DELAY {
-                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&state), Arc::clone(&out_sender), event.clone()));
+                        tokio::spawn(handle_spotify_task(Arc::clone(&config), Arc::clone(&state), Arc::clone(&out_sender), event));
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -115,7 +115,7 @@ impl App for Spotify {
         };
     }
 
-    fn send(&mut self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
+    fn send(&mut self, event: In) -> Result<(), mpsc::error::SendError<In>> {
         return self.in_sender.blocking_send(event);
     }
 
@@ -124,63 +124,68 @@ impl App for Spotify {
     }
 }
 
-async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
-    let _ = match state.input_transformer.into_index(event) {
-        Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
-            {
-                let mut last_action = state.last_action.lock().unwrap();
-                *last_action = Instant::now();
-            }
-
-            let s = Arc::clone(&state);
-            let playing = *s.playing.lock().unwrap();
-            if playing == Some(index) {
-                sender.send(ServerCommand::SpotifyPause.into()).await
-                    .unwrap_or_else(|err| eprintln!("[spotify] could not send pause command: {}", err));
-                {
-                    let s = Arc::clone(&state);
-                    let mut playing = s.playing.lock().unwrap();
-                    *playing = None;
-                }
-                render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
-                return Ok(());
-            }
-
-            let track = start_or_resume_index(token, Arc::clone(&state), Arc::clone(&sender), index.into()).await;
-            if track.is_ok() {
-                let s = Arc::clone(&state);
-                let mut playing = s.playing.lock().unwrap();
-                *playing = Some(index);
-            }
-
-            let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
-            match cover_url {
-                Some(url) => {
-                    let image = Image::from_url(&url).await.map_err(|_| ());
-                    let event_out = image.and_then(|image| {
-                        return state.output_transformer.from_image(image).map_err(|_| ());
-                    });
-
-                    match event_out {
-                        Ok(event) => {
-                            let _ = sender.send(event.into()).await;
-                            sleep(DELAY).await;
-                            pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-                            render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
-                        },
-                        Err(_) => {
-                            println!("Could not download and decode {}", url);
-                        },
+async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: In) {
+    match event {
+        In::Midi(event) => {
+            let _ = match state.input_transformer.into_index(event) {
+                Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
+                    {
+                        let mut last_action = state.last_action.lock().unwrap();
+                        *last_action = Instant::now();
                     }
+
+                    let s = Arc::clone(&state);
+                    let playing = *s.playing.lock().unwrap();
+                    if playing == Some(index) {
+                        sender.send(ServerCommand::SpotifyPause.into()).await
+                            .unwrap_or_else(|err| eprintln!("[spotify] could not send pause command: {}", err));
+                        {
+                            let s = Arc::clone(&state);
+                            let mut playing = s.playing.lock().unwrap();
+                            *playing = None;
+                        }
+                        render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+                        return Ok(());
+                    }
+
+                    let track = start_or_resume_index(token, Arc::clone(&state), Arc::clone(&sender), index.into()).await;
+                    if track.is_ok() {
+                        let s = Arc::clone(&state);
+                        let mut playing = s.playing.lock().unwrap();
+                        *playing = Some(index);
+                    }
+
+                    let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
+                    match cover_url {
+                        Some(url) => {
+                            let image = Image::from_url(&url).await.map_err(|_| ());
+                            let event_out = image.and_then(|image| {
+                                return state.output_transformer.from_image(image).map_err(|_| ());
+                            });
+
+                            match event_out {
+                                Ok(event) => {
+                                    let _ = sender.send(event.into()).await;
+                                    sleep(DELAY).await;
+                                    pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
+                                    render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+                                },
+                                Err(_) => {
+                                    println!("Could not download and decode {}", url);
+                                },
+                            }
+                        },
+                        None => println!("No cover found for track {:?}", track.as_ref().map(|t| t.id.clone()).map_err(|_err| ())),
+                    }
+                    return track.map(|_t| ());
+                }).await,
+                _ => {
+                    return ();
                 },
-                None => println!("No cover found for track {:?}", track.as_ref().map(|t| t.id.clone()).map_err(|_err| ())),
-            }
-            return track.map(|_t| ());
-        }).await,
-        _ => {
-            return ();
+            };
         },
-    };
+        _ => {},
+    }
 }
 
 async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {

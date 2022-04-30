@@ -1,14 +1,14 @@
 use tokio::sync::mpsc;
 
-use crate::apps::{App, Out};
+use crate::apps::{App, In, Out};
 use crate::image::Image;
-use crate::midi::{Event, EventTransformer};
+use crate::midi::EventTransformer;
 
 use super::config::Config;
 
 pub struct Forward {
-    sender: mpsc::Sender<Event>,
-    receiver: mpsc::Receiver<Event>,
+    sender: mpsc::Sender<In>,
+    receiver: mpsc::Receiver<In>,
 }
 
 pub const NAME: &'static str = "forward";
@@ -20,7 +20,7 @@ impl Forward {
         _input_transformer: &'static (dyn EventTransformer + Sync),
         _output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
-        let (sender, receiver) = mpsc::channel::<Event>(32);
+        let (sender, receiver) = mpsc::channel::<In>(32);
 
         Forward {
             sender,
@@ -42,12 +42,18 @@ impl App for Forward {
         return get_logo();
     }
 
-    fn send(&mut self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
-        return self.sender.blocking_send(event);
+    fn send(&mut self, event: In) -> Result<(), mpsc::error::SendError<In>> {
+        match event {
+            In::Midi(event) => self.sender.blocking_send(In::Midi(event)),
+            _ => Ok(()),
+        }
     }
 
     fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
-        return self.receiver.try_recv().map(|event| event.into());
+        return self.receiver.try_recv().and_then(|event| match event {
+            In::Midi(event) => Ok(Out::Midi(event)),
+            _ => Err(mpsc::error::TryRecvError::Empty),
+        });
     }
 }
 

@@ -24,7 +24,7 @@ pub trait App {
     fn get_logo(&self) -> Image;
 
     /// Send an event to be handled by the application
-    fn send(&mut self, event: MidiEvent) -> Result<(), SendError<MidiEvent>>;
+    fn send(&mut self, event: In) -> Result<(), SendError<In>>;
 
     /// Poll events emitted by the application
     fn receive(&mut self) -> Result<Out, TryRecvError>;
@@ -148,15 +148,33 @@ pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
     });
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum In {
+    Midi(MidiEvent),
+    Server(ServerCommand),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Out {
     Midi(MidiEvent),
     Server(ServerCommand),
 }
 
+impl From<MidiEvent> for In {
+    fn from(event: MidiEvent) -> Self {
+        return In::Midi(event);
+    }
+}
+
 impl From<MidiEvent> for Out {
     fn from(event: MidiEvent) -> Self {
         return Out::Midi(event);
+    }
+}
+
+impl From<ServerCommand> for In {
+    fn from(command: ServerCommand) -> Self {
+        return In::Server(command);
     }
 }
 

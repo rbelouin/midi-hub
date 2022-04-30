@@ -1,9 +1,9 @@
 use tokio::sync::mpsc::{Sender, Receiver, channel};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
-use crate::apps::{App, Out};
+use crate::apps::{App, In, Out};
 
-use crate::midi::{Event, EventTransformer, Image};
+use crate::midi::{EventTransformer, Image};
 
 use super::config::Config;
 
@@ -63,34 +63,46 @@ impl App for Selection {
     }
 
     // This one will be hard to test until we let Selection accept more generic apps
-    fn send(&mut self, event: Event) -> Result<(), SendError<Event>> {
-        let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
-            .and_then(|app_index| {
-                let selected_app = self.apps.get(app_index as usize);
-                if selected_app.is_some() {
-                    self.selected_app = app_index as usize;
-                }
-                return selected_app;
-            });
+    fn send(&mut self, event: In) -> Result<(), SendError<In>> {
+        match event {
+            In::Midi(event) => {
+                let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
+                    .and_then(|app_index| {
+                        let selected_app = self.apps.get(app_index as usize);
+                        if selected_app.is_some() {
+                            self.selected_app = app_index as usize;
+                        }
+                        return selected_app;
+                    });
 
-        match selected_app {
-            Some(selected_app) => {
-                println!("[selection] selecting {}", selected_app.get_name());
-                self.output_transformer.from_image(selected_app.get_logo())
-                    .map_err(|err| format!("[selection] could not transform the image: {}", err))
-                    .and_then(|event| self.out_sender.blocking_send(event.into())
-                        .map_err(|err| format!("[selection] could not send the image: {}", err)))
-                    .unwrap_or_else(|err| eprintln!("{}", err));
-            },
-            _ => {
-                match self.apps.get_mut(self.selected_app) {
-                    Some(app) => app.send(event)
-                        .unwrap_or_else(|err| eprintln!("[selection][{}] could not send event: {}", app.get_name(), err)),
-                    None => eprintln!("No app found for index: {}", self.selected_app),
+                match selected_app {
+                    Some(selected_app) => {
+                        println!("[selection] selecting {}", selected_app.get_name());
+                        self.output_transformer.from_image(selected_app.get_logo())
+                            .map_err(|err| format!("[selection] could not transform the image: {}", err))
+                            .and_then(|event| self.out_sender.blocking_send(event.into())
+                                .map_err(|err| format!("[selection] could not send the image: {}", err)))
+                            .unwrap_or_else(|err| eprintln!("{}", err));
+                    },
+                    _ => {
+                        match self.apps.get_mut(self.selected_app) {
+                            Some(app) => app.send(event.into())
+                                .unwrap_or_else(|err| eprintln!("[selection][{}] could not send event: {}", app.get_name(), err)),
+                            None => eprintln!("No app found for index: {}", self.selected_app),
+                        }
+                    },
                 }
+                Ok(())
+            },
+            In::Server(command)  => {
+                for app in &mut self.apps {
+                    app.send(command.clone().into()).unwrap_or_else(|err| {
+                        println!("[selection] could not forward server command to {}: {}", app.get_name(), err);
+                    });
+                }
+                Ok(())
             },
         }
-        Ok(())
     }
 
     // This one will be hard to test until we let Selection accept more generic apps
