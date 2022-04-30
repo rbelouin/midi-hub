@@ -18,6 +18,7 @@ struct State {
     config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
+    playing: Mutex<Option<u16>>,
 }
 
 pub struct Youtube {
@@ -45,6 +46,7 @@ impl Youtube {
             config,
             last_action: Mutex::new(Instant::now() - DELAY),
             items: Mutex::new(vec![]),
+            playing: Mutex::new(None),
         });
 
         let rt = Builder::new_current_thread()
@@ -151,6 +153,21 @@ async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
 async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
     match state.input_transformer.into_index(event) {
         Ok(Some(index)) => {
+            let playing_index = {
+                let playing = state.playing.lock().expect("we should be able to lock state.playing");
+                playing.clone()
+            };
+
+            if playing_index == Some(index) {
+                sender.send(ServerCommand::YoutubePause.into()).await.unwrap_or_else(|err| {
+                    eprintln!("[youtube] could not send pause command: {}", err);
+                });
+
+                let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
+                *playing = None;
+                return;
+            }
+
             {
                 let mut last_action = state.last_action.lock().unwrap();
                 *last_action = Instant::now();
@@ -165,7 +182,11 @@ async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, 
                 Some(item) => {
                     let video_id = item.snippet.resource_id.video_id;
                     match sender.send(ServerCommand::YoutubePlay { video_id: video_id.clone() }.into()).await {
-                        Ok(_) => println!("Playing track {}", video_id),
+                        Ok(_) => {
+                            println!("Playing track {}", video_id);
+                            let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
+                            *playing = Some(index);
+                        },
                         Err(_) => eprintln!("Could not play track {}", video_id),
                     }
                 },

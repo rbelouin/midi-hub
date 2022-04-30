@@ -107,6 +107,11 @@
       document.querySelector('[data-screen]').dataset.screen = 'youtube';
       if (spotifyPlayer) { spotifyPlayer.pause(); }
       playYoutubeVideo(command.YoutubePlay.video_id);
+    } else if (command === 'YoutubePause') {
+      if (youtubePlayer) {
+        youtubePlayer.destroy();
+        youtubePlayer = undefined;
+      }
     } else {
       console.error('Unsupported command', command);
     }

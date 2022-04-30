@@ -16,6 +16,7 @@ pub enum Command {
     SpotifyPlay { track_id: String, access_token: String },
     SpotifyPause,
     YoutubePlay { video_id: String },
+    YoutubePause,
 }
 
 pub struct HttpServer {
