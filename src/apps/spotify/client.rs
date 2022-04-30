@@ -131,6 +131,27 @@ pub mod playlists {
     }
 }
 
+pub mod player {
+    use serde::Deserialize;
+
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct SpotifyPlaybackState {
+        pub is_playing: bool,
+        pub item: super::tracks::SpotifyTrack,
+    }
+
+    pub async fn get_playback_state(token: String) -> Result<Option<SpotifyPlaybackState>, super::SpotifyError> {
+        return super::log("Get playback state".to_string(), || async {
+            let response = super::get("https://api.spotify.com/v1/me/player".to_string(), token).await?
+                .json::<Option<SpotifyPlaybackState>>()
+                .await
+                .map_err(|_| super::SpotifyError::SerdeError)?;
+
+            return Ok(response);
+        }).await;
+    }
+}
+
 async fn log<F, Fut, T>(description: String, action: F) -> T where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
