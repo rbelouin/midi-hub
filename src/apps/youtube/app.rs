@@ -111,10 +111,25 @@ async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) 
         ()
     })?;
 
-    return sender.send(event.into()).await.map_err(|err| {
+    sender.send(event.into()).await.unwrap_or_else(|err| {
         eprintln!("Could not send the event back to the router: {:?}", err);
-        ()
     });
+
+    let playing_index = {
+        let playing = state.playing.lock().expect("we should be able to lock state.playing");
+        playing.clone()
+    };
+
+    if let Some(index) = playing_index {
+        let event = state.output_transformer.from_index_to_highlight(index).map_err(|err| {
+            eprintln!("Could not convert the index to highlight into a  MIDI event: {:?}", err)
+        })?;
+        sender.send(event.into()).await.unwrap_or_else(|err| {
+            eprintln!("Could not send the event back to the router: {:?}", err);
+        });
+    }
+
+    Ok(())
 }
 
 pub fn get_logo() -> Image {
@@ -163,8 +178,15 @@ async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, 
                     eprintln!("[youtube] could not send pause command: {}", err);
                 });
 
-                let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
-                *playing = None;
+                {
+                    let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
+                    *playing = None;
+                }
+
+                render_youtube_logo(state, sender).await.unwrap_or_else(|err| {
+                    eprintln!("[youtube] could not render logo: {:?}", err);
+                });
+
                 return;
             }
 
@@ -184,8 +206,13 @@ async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, 
                     match sender.send(ServerCommand::YoutubePlay { video_id: video_id.clone() }.into()).await {
                         Ok(_) => {
                             println!("Playing track {}", video_id);
-                            let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
-                            *playing = Some(index);
+                            {
+                                let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
+                                *playing = Some(index);
+                            }
+                            render_youtube_logo(Arc::clone(&state), sender).await.unwrap_or_else(|err| {
+                                eprintln!("[youtube] could not render logo: {:?}", err);
+                            });
                         },
                         Err(_) => eprintln!("Could not play track {}", video_id),
                     }
