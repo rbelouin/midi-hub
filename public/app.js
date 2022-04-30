@@ -78,9 +78,11 @@
         events: {
           onReady: () => youtubePlayer.playVideo(),
           onStateChange: (event) => {
-            if (event.data === YT.PlayerState.ENDED) {
+            if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
               youtubePlayer.destroy();
               youtubePlayer = undefined;
+              console.log(ws);
+              ws.send(JSON.stringify('YoutubePause'));
             }
           },
         }
@@ -99,10 +101,18 @@
         youtubePlayer = undefined;
       }
       playSpotifyTrack(command.SpotifyPlay.track_id, command.SpotifyPlay.access_token);
+    } else if (command === 'SpotifyPause') {
+      if (spotifyPlayer) {
+        spotifyPlayer.pause();
+      }
     } else if (command.YoutubePlay) {
       document.querySelector('[data-screen]').dataset.screen = 'youtube';
       if (spotifyPlayer) { spotifyPlayer.pause(); }
       playYoutubeVideo(command.YoutubePlay.video_id);
+    } else if (command === 'YoutubePause') {
+      if (youtubePlayer) {
+        youtubePlayer.pauseVideo();
+      }
     } else {
       console.error('Unsupported command', command);
     }

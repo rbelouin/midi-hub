@@ -93,11 +93,26 @@ impl Router {
                 // so that devices get pulled again.
                 execution = Err(Error::DeviceNotFound);
 
+                let server_command = match self.server.receive() {
+                    Ok(command) => Some(command),
+                    Err(TryRecvError::Disconnected) => {
+                        eprintln!("[router] server has disconnected");
+                        None
+                    },
+                    _ => None,
+                };
+
                 for (app, input, output) in &mut resolved_links {
                     let input_execution = match input.as_mut() {
                         Ok(input) => {
+                            if let Some(command) = server_command.clone() {
+                                app.send(command.into()).unwrap_or_else(|err| {
+                                    eprintln!("[router] could not send event to app {}: {}", app.get_name(), err);
+                                });
+                            }
+
                             match Reader::read(&mut input.port) {
-                                Ok(Some(event)) => app.send(event).unwrap_or_else(|err| {
+                                Ok(Some(event)) => app.send(event.into()).unwrap_or_else(|err| {
                                     eprintln!("[router] could not send event to app {}: {}", app.get_name(), err);
                                 }),
                                 Err(err) => eprintln!("[router] error when reading event from device {}: {}", input.id, err),

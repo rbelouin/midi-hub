@@ -5,9 +5,9 @@ use std::convert::Into;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::apps::{App, Out, ServerCommand};
+use crate::apps::{App, In, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::{Event, EventTransformer};
+use crate::midi::EventTransformer;
 
 use super::config::Config;
 use super::client;
@@ -18,10 +18,11 @@ struct State {
     config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
+    playing: Mutex<Option<u16>>,
 }
 
 pub struct Youtube {
-    in_sender: mpsc::Sender<Event>,
+    in_sender: mpsc::Sender<In>,
     out_receiver: mpsc::Receiver<Out>,
 }
 
@@ -36,7 +37,7 @@ impl Youtube {
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
-        let (in_sender, mut in_receiver) = mpsc::channel::<Event>(32);
+        let (in_sender, mut in_receiver) = mpsc::channel::<In>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let state = Arc::new(State {
@@ -45,6 +46,7 @@ impl Youtube {
             config,
             last_action: Mutex::new(Instant::now() - DELAY),
             items: Mutex::new(vec![]),
+            playing: Mutex::new(None),
         });
 
         let rt = Builder::new_current_thread()
@@ -66,7 +68,7 @@ impl Youtube {
                     };
 
                     if time_elapsed > DELAY {
-                        tokio::spawn(handle_youtube_task(Arc::clone(&state_copy), Arc::clone(&out_sender), event.clone()));
+                        tokio::spawn(handle_youtube_task(Arc::clone(&state_copy), Arc::clone(&out_sender), event));
                     } else {
                         println!("Ignoring event: {:?}", event);
                     }
@@ -94,7 +96,7 @@ impl App for Youtube {
         return get_logo();
     }
 
-    fn send(&mut self, event: Event) -> Result<(), mpsc::error::SendError<Event>> {
+    fn send(&mut self, event: In) -> Result<(), mpsc::error::SendError<In>> {
         return self.in_sender.blocking_send(event);
     }
 
@@ -109,10 +111,25 @@ async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) 
         ()
     })?;
 
-    return sender.send(event.into()).await.map_err(|err| {
+    sender.send(event.into()).await.unwrap_or_else(|err| {
         eprintln!("Could not send the event back to the router: {:?}", err);
-        ()
     });
+
+    let playing_index = {
+        let playing = state.playing.lock().expect("we should be able to lock state.playing");
+        playing.clone()
+    };
+
+    if let Some(index) = playing_index {
+        let event = state.output_transformer.from_index_to_highlight(index).map_err(|err| {
+            eprintln!("Could not convert the index to highlight into a  MIDI event: {:?}", err)
+        })?;
+        sender.send(event.into()).await.unwrap_or_else(|err| {
+            eprintln!("Could not send the event back to the router: {:?}", err);
+        });
+    }
+
+    Ok(())
 }
 
 pub fn get_logo() -> Image {
@@ -148,32 +165,69 @@ async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
     return Ok(());
 }
 
-async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: Event) {
-    match state.input_transformer.into_index(event) {
-        Ok(Some(index)) => {
-            {
-                let mut last_action = state.last_action.lock().unwrap();
-                *last_action = Instant::now();
-            }
+async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: In) {
+    match event {
+        In::Midi(event) => {
+            match state.input_transformer.into_index(event) {
+                Ok(Some(index)) => {
+                    let playing_index = {
+                        let playing = state.playing.lock().expect("we should be able to lock state.playing");
+                        playing.clone()
+                    };
 
-            let item = {
-                let items = state.items.lock().unwrap();
-                items.get(usize::from(index)).map(|item| item.clone())
-            };
+                    if playing_index == Some(index) {
+                        sender.send(ServerCommand::YoutubePause.into()).await.unwrap_or_else(|err| {
+                            eprintln!("[youtube] could not send pause command: {}", err);
+                        });
+                        return;
+                    }
 
-            match item {
-                Some(item) => {
-                    let video_id = item.snippet.resource_id.video_id;
-                    match sender.send(ServerCommand::YoutubePlay { video_id: video_id.clone() }.into()).await {
-                        Ok(_) => println!("Playing track {}", video_id),
-                        Err(_) => eprintln!("Could not play track {}", video_id),
+                    {
+                        let mut last_action = state.last_action.lock().unwrap();
+                        *last_action = Instant::now();
+                    }
+
+                    let item = {
+                        let items = state.items.lock().unwrap();
+                        items.get(usize::from(index)).map(|item| item.clone())
+                    };
+
+                    match item {
+                        Some(item) => {
+                            let video_id = item.snippet.resource_id.video_id;
+                            match sender.send(ServerCommand::YoutubePlay { video_id: video_id.clone() }.into()).await {
+                                Ok(_) => {
+                                    println!("Playing track {}", video_id);
+                                    {
+                                        let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
+                                        *playing = Some(index);
+                                    }
+                                    render_youtube_logo(Arc::clone(&state), sender).await.unwrap_or_else(|err| {
+                                        eprintln!("[youtube] could not render logo: {:?}", err);
+                                    });
+                                },
+                                Err(_) => eprintln!("Could not play track {}", video_id),
+                            }
+                        },
+                        _ => println!("No track for index: {}", index),
                     }
                 },
-                _ => println!("No track for index: {}", index),
+                _ => {},
+            };
+
+            let _ = pull_playlist_items(state).await;
+        },
+        In::Server(ServerCommand::YoutubePause) => {
+            {
+                let mut playing = state.playing.lock().expect("we should be able to lock state.playing");
+                *playing = None;
             }
+
+            let state = Arc::clone(&state);
+            render_youtube_logo(state, sender).await.unwrap_or_else(|err| {
+                eprintln!("[youtube] could not render logo: {:?}", err);
+            });
         },
         _ => {},
-    };
-
-    let _ = pull_playlist_items(state).await;
+    }
 }
