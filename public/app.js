@@ -69,25 +69,25 @@
     }
 
     if (youtubePlayer) {
-      youtubePlayer.loadVideoById(videoId, 0, 'hd720');
-    } else {
-      youtubePlayer = new YT.Player('youtube-player', {
-        height: '720',
-        width: '1280',
-        videoId,
-        events: {
-          onReady: () => youtubePlayer.playVideo(),
-          onStateChange: (event) => {
-            if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
-              youtubePlayer.destroy();
-              youtubePlayer = undefined;
-              console.log(ws);
-              ws.send(JSON.stringify('YoutubePause'));
-            }
-          },
-        }
-      });
+      youtubePlayer.destroy();
+      youtubePlayer = undefined;
     }
+
+    youtubePlayer = new YT.Player('youtube-player', {
+      height: '720',
+      width: '1280',
+      videoId,
+      events: {
+        onReady: () => youtubePlayer.playVideo(),
+        onStateChange: (event) => {
+          if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+            youtubePlayer.destroy();
+            youtubePlayer = undefined;
+            ws.send(JSON.stringify('YoutubePause'));
+          }
+        },
+      }
+    });
   }
 
   const ws = new WebSocket("ws://localhost:54321/ws");
