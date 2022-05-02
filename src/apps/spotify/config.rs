@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use tokio::runtime::Builder;
 use warp::Filter;
 
-use super::client;
+use super::client::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -128,6 +128,6 @@ async fn spawn_authorization_server(client_id: &String, client_secret: &String) 
 
     server.await;
     let code = recv.await.map_err(|err| Box::new(err))?;
-    let token = client::authorization::request_token(client_id, client_secret, &code).await?;
+    let token = SPOTIFY_API_CLIENT.request_token(client_id, client_secret, &code).await?;
     return token.refresh_token.ok_or(Box::new(std::io::Error::from(std::io::ErrorKind::InvalidData)));
 }

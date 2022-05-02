@@ -1,3 +1,5 @@
+#[macro_use] extern crate async_trait;
+
 extern crate portmidi as pm;
 extern crate signal_hook as sh;
 

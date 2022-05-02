@@ -10,9 +10,7 @@ use crate::image::Image;
 use crate::midi::EventTransformer;
 
 use super::config::Config;
-use super::client;
-use super::client::SpotifyError;
-use super::client::tracks::SpotifyTrack;
+use super::client::*;
 
 pub const NAME: &'static str = "spotify";
 pub const COLOR: [u8; 3] = [0, 255, 0];
@@ -20,6 +18,7 @@ pub const COLOR: [u8; 3] = [0, 255, 0];
 const DELAY: Duration = Duration::from_millis(5_000);
 
 struct State {
+    client: &'static (dyn SpotifyApiClientInterface + Sync),
     input_transformer: &'static (dyn EventTransformer + Sync),
     output_transformer: &'static (dyn EventTransformer + Sync),
     access_token: Mutex<Option<String>>,
@@ -36,11 +35,13 @@ pub struct Spotify {
 impl Spotify {
     pub fn new(
         config: Config,
+        client: &'static (dyn SpotifyApiClientInterface + Sync),
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
         let config = Arc::new(config);
         let state = Arc::new(State {
+            client,
             input_transformer,
             output_transformer,
             access_token: Mutex::new(None),
@@ -147,7 +148,7 @@ async fn listen_events(
 async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<mpsc::Sender<Out>>) {
     loop {
         with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
-            let playback_state = client::player::get_playback_state(token).await.map_err(|err| {
+            let playback_state = state.client.get_playback_state(token).await.map_err(|err| {
                 eprintln!("error: {:?}", err);
                 err
             })?;
@@ -222,7 +223,7 @@ async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc
                         *playing = Some(index);
                     }
 
-                    let cover_url = track.clone().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
+                    let cover_url = track.as_ref().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
                     match cover_url {
                         Some(url) => {
                             let image = Image::from_url(&url).await.map_err(|_| ());
@@ -257,7 +258,7 @@ async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc
 
 async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     let tracks = with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
-        return client::playlists::get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await;
+        return state.client.get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await;
     }).await;
 
     match tracks {
@@ -293,14 +294,14 @@ async fn render_spotify_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) 
 
 async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f: F) -> Result<A, ()> where
     F: Fn(String) -> Fut,
-    Fut: Future<Output = Result<A, SpotifyError>>,
+    Fut: Future<Output = SpotifyApiResult<A>>,
 {
     let token = state.access_token.lock().unwrap().clone();
     return match token {
         Some(token) => {
             println!("[Spotify] Found token in memory");
             match f(token.to_string()).await {
-                Err(SpotifyError::Unauthorized) => {
+                Err(SpotifyApiError::Unauthorized) => {
                     println!("[Spotify] Retrying because of expired token");
                     let token = fetch_and_store_access_token(config, state).await?;
                     return f(token).await.map_err(|_err| ());
@@ -318,7 +319,7 @@ async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f:
 }
 
 async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->  Result<String, ()> {
-    let token_response =  client::authorization::refresh_token(
+    let token_response =  state.client.refresh_token(
         &config.client_id,
         &config.client_secret,
         &config.refresh_token
@@ -328,7 +329,7 @@ async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->
     return Ok(token_response.access_token.clone());
 }
 
-async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, index: usize) -> Result<SpotifyTrack, SpotifyError> {
+async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, index: usize) -> SpotifyApiResult<SpotifyTrack> {
     println!("[Spotify] Playing track {}", index);
     let track = state.tracks.lock().unwrap().as_ref()
         .and_then(|tracks| tracks.get(index))
@@ -340,8 +341,8 @@ async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mps
             access_token: token
         }.into()).await
             .map(|_| track)
-            .map_err(|_| SpotifyError::Unknown),
-        _ => Err(SpotifyError::Unknown),
+            .map_err(|err| SpotifyApiError::Other(Box::new(err))),
+        _ => Err(SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotFound)))),
     }
 }
 
