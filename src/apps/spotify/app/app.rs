@@ -2,29 +2,30 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-use std::{future::Future, sync::{Arc, Mutex}};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::apps::{App, In, Out, ServerCommand};
 use crate::image::Image;
 use crate::midi::EventTransformer;
 
-use super::config::Config;
-use super::client::*;
+use super::super::config::Config;
+use super::super::client::*;
+use super::access_token::*;
 
 pub const NAME: &'static str = "spotify";
 pub const COLOR: [u8; 3] = [0, 255, 0];
 
 const DELAY: Duration = Duration::from_millis(5_000);
 
-struct State {
-    client: &'static (dyn SpotifyApiClient + Sync),
-    input_transformer: &'static (dyn EventTransformer + Sync),
-    output_transformer: &'static (dyn EventTransformer + Sync),
-    access_token: Mutex<Option<String>>,
-    last_action: Mutex<Instant>,
-    tracks: Mutex<Option<Vec<SpotifyTrack>>>,
-    playing: Mutex<Option<u16>>,
+pub struct State {
+    pub client: Box<dyn SpotifyApiClient + Send + Sync>,
+    pub input_transformer: &'static (dyn EventTransformer + Sync),
+    pub output_transformer: &'static (dyn EventTransformer + Sync),
+    pub access_token: Mutex<Option<String>>,
+    pub last_action: Mutex<Instant>,
+    pub tracks: Mutex<Option<Vec<SpotifyTrack>>>,
+    pub playing: Mutex<Option<u16>>,
 }
 
 pub struct Spotify {
@@ -35,7 +36,7 @@ pub struct Spotify {
 impl Spotify {
     pub fn new(
         config: Config,
-        client: &'static (dyn SpotifyApiClient + Sync),
+        client: Box<dyn SpotifyApiClient + Send + Sync>,
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
@@ -290,43 +291,6 @@ async fn render_spotify_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) 
         },
         None => {},
     };
-}
-
-async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f: F) -> Result<A, ()> where
-    F: Fn(String) -> Fut,
-    Fut: Future<Output = SpotifyApiResult<A>>,
-{
-    let token = state.access_token.lock().unwrap().clone();
-    return match token {
-        Some(token) => {
-            println!("[Spotify] Found token in memory");
-            match f(token.to_string()).await {
-                Err(SpotifyApiError::Unauthorized) => {
-                    println!("[Spotify] Retrying because of expired token");
-                    let token = fetch_and_store_access_token(config, state).await?;
-                    return f(token).await.map_err(|_err| ());
-                },
-                Err(_) => Err(()),
-                Ok(a) => Ok(a),
-            }
-        },
-        None => {
-            println!("[Spotify] No token in memory");
-            let token = fetch_and_store_access_token(config, state).await?;
-            return f(token).await.map_err(|_err| ());
-        },
-    };
-}
-
-async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->  Result<String, ()> {
-    let token_response =  state.client.refresh_token(
-        &config.client_id,
-        &config.client_secret,
-        &config.refresh_token
-    ).await.unwrap();
-    let mut new_token = state.access_token.lock().unwrap();
-    *new_token = Some(token_response.access_token.clone());
-    return Ok(token_response.access_token.clone());
 }
 
 async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, index: usize) -> SpotifyApiResult<SpotifyTrack> {

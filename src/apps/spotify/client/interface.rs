@@ -1,7 +1,11 @@
 use serde::Deserialize;
 
+#[cfg(test)]
+use mockall::automock;
+
 pub type SpotifyApiResult<A> = std::result::Result<A, SpotifyApiError>;
 
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait SpotifyApiClient {
     async fn request_token(

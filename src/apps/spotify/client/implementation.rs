@@ -13,9 +13,13 @@ impl From<reqwest::Error> for SpotifyApiError {
     }
 }
 
-pub const SPOTIFY_API_CLIENT: SpotifyApiClientImpl = SpotifyApiClientImpl {};
-
 pub struct SpotifyApiClientImpl {}
+
+impl SpotifyApiClientImpl {
+    pub fn new() -> Self {
+        return SpotifyApiClientImpl {};
+    }
+}
 
 #[async_trait]
 impl SpotifyApiClient for SpotifyApiClientImpl {
@@ -154,20 +158,22 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                let token = SPOTIFY_API_CLIENT.refresh_token(
+                let client = SpotifyApiClientImpl::new();
+
+                let token = client.refresh_token(
                     &client_id,
                     &client_secret,
                     &refresh_token,
                 ).await.unwrap();
 
-                let playlist_tracks = SPOTIFY_API_CLIENT
+                let playlist_tracks = client
                     .get_playlist_tracks(token.access_token.clone(), "1vsF6HQZWDv6BHPPBevJMG".to_string())
                     .await
                     .unwrap();
 
                 assert_eq!(playlist_tracks.len(), 64, "The playlist under test should have 64 tracks");
 
-                let playback_state = SPOTIFY_API_CLIENT
+                let playback_state = client
                     .get_playback_state(token.access_token.clone())
                     .await
                     .unwrap();

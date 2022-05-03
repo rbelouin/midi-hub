@@ -54,7 +54,7 @@ impl Config {
                 let config = self.spotify.as_ref()?;
                 Some(Box::new(spotify::app::Spotify::new(
                     config.clone(),
-                    &spotify::client::SPOTIFY_API_CLIENT,
+                    Box::new(spotify::client::SpotifyApiClientImpl::new()),
                     input_transformer,
                     output_transformer)))
             }

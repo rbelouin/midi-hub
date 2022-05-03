@@ -128,6 +128,7 @@ async fn spawn_authorization_server(client_id: &String, client_secret: &String) 
 
     server.await;
     let code = recv.await.map_err(|err| Box::new(err))?;
-    let token = SPOTIFY_API_CLIENT.request_token(client_id, client_secret, &code).await?;
+    let client = SpotifyApiClientImpl::new();
+    let token = client.request_token(client_id, client_secret, &code).await?;
     return token.refresh_token.ok_or(Box::new(std::io::Error::from(std::io::ErrorKind::InvalidData)));
 }

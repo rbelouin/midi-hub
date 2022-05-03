@@ -1,4 +1,5 @@
 #[macro_use] extern crate async_trait;
+#[macro_use] extern crate mockall;
 
 extern crate portmidi as pm;
 extern crate signal_hook as sh;
