@@ -5,18 +5,25 @@ use tokio::time::sleep;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::apps::{App, In, Out, ServerCommand};
+use crate::apps::{App, ServerCommand};
 use crate::image::Image;
 use crate::midi::EventTransformer;
 
 use super::super::config::Config;
 use super::super::client::*;
+
 use super::access_token::*;
+use super::render_logo::*;
 
 pub const NAME: &'static str = "spotify";
 pub const COLOR: [u8; 3] = [0, 255, 0];
 
 const DELAY: Duration = Duration::from_millis(5_000);
+
+pub type In = crate::apps::In;
+pub type Out = crate::apps::Out;
+pub type Sender<T> = tokio::sync::mpsc::Sender<T>;
+pub type Receiver<T> = tokio::sync::mpsc::Receiver<T>;
 
 pub struct State {
     pub client: Box<dyn SpotifyApiClient + Send + Sync>,
@@ -29,8 +36,8 @@ pub struct State {
 }
 
 pub struct Spotify {
-    in_sender: mpsc::Sender<In>,
-    out_receiver: mpsc::Receiver<Out>,
+    in_sender: Sender<In>,
+    out_receiver: Receiver<Out>,
 }
 
 impl Spotify {
@@ -95,22 +102,7 @@ impl App for Spotify {
     }
 
     fn get_logo(&self) -> Image {
-        let g = [0, 255, 0];
-        let w = [255, 255, 255];
-        return Image {
-            width: 8,
-            height: 8,
-            bytes: vec![
-                g, g, g, g, g, g, g, g,
-                g, g, w, w, w, w, g, g,
-                g, w, g, g, g, g, w, g,
-                g, g, w, w, w, w, g, g,
-                g, w, g, g, g, g, w, g,
-                g, g, w, w, w, w, g, g,
-                g, w, g, g, g, g, w, g,
-                g, g, g, g, g, g, g, g,
-            ].concat(),
-        };
+        return get_logo();
     }
 
     fn send(&mut self, event: In) -> Result<(), mpsc::error::SendError<In>> {
@@ -125,11 +117,11 @@ impl App for Spotify {
 async fn listen_events(
     config: Arc<Config>,
     state: Arc<State>,
-    out_sender: Arc<mpsc::Sender<Out>>,
-    mut in_receiver: mpsc::Receiver<In>,
+    out_sender: Arc<Sender<Out>>,
+    mut in_receiver: Receiver<In>,
 ) {
     pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-    render_spotify_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
+    render_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
     while let Some(event) = in_receiver.recv().await {
         let config = Arc::clone(&config);
         let state = Arc::clone(&state);
@@ -146,7 +138,7 @@ async fn listen_events(
     }
 }
 
-async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<mpsc::Sender<Out>>) {
+async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<Sender<Out>>) {
     loop {
         with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
             let playback_state = state.client.get_playback_state(token).await.map_err(|err| {
@@ -182,7 +174,7 @@ async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<mpsc
             };
 
             if has_changed {
-                render_spotify_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
+                render_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
             }
 
             Ok(())
@@ -193,7 +185,7 @@ async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<mpsc
     }
 }
 
-async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: In) {
+async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<Sender<Out>>, event: In) {
     match event {
         In::Midi(event) => {
             let _ = match state.input_transformer.into_index(event) {
@@ -213,7 +205,7 @@ async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc
                             let mut playing = s.playing.lock().unwrap();
                             *playing = None;
                         }
-                        render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+                        render_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                         return Ok(());
                     }
 
@@ -237,7 +229,7 @@ async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc
                                     let _ = sender.send(event.into()).await;
                                     sleep(DELAY).await;
                                     pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-                                    render_spotify_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+                                    render_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                                 },
                                 Err(_) => {
                                     println!("Could not download and decode {}", url);
@@ -271,29 +263,7 @@ async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
     }
 }
 
-async fn render_spotify_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) {
-    match state.output_transformer.from_image(get_spotify_logo()) {
-        Err(_) => println!("[Spotify] could not render the spotify logo"),
-        Ok(event) => {
-            let _ = sender.send(event.into()).await;
-        },
-    }
-
-    let playing = state.playing.lock().unwrap().clone();
-    match playing {
-        Some(index) => match state.output_transformer.from_index_to_highlight(index) {
-            Ok(event) => {
-                let _ = sender.send(event.into()).await;
-            },
-            Err(e) => {
-                println!("Could not select index: {} ({})", index, e);
-            },
-        },
-        None => {},
-    };
-}
-
-async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, index: usize) -> SpotifyApiResult<SpotifyTrack> {
+async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<Sender<Out>>, index: usize) -> SpotifyApiResult<SpotifyTrack> {
     println!("[Spotify] Playing track {}", index);
     let track = state.tracks.lock().unwrap().as_ref()
         .and_then(|tracks| tracks.get(index))
@@ -308,24 +278,4 @@ async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<mps
             .map_err(|err| SpotifyApiError::Other(Box::new(err))),
         _ => Err(SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotFound)))),
     }
-}
-
-pub fn get_spotify_logo() -> Image {
-    let g = [0, 255, 0];
-    let w = [255, 255, 255];
-
-    return Image {
-        width: 8,
-        height: 8,
-        bytes: vec![
-            g, g, g, g, g, g, g, g,
-            g, g, w, w, w, w, g, g,
-            g, w, g, g, g, g, w, g,
-            g, g, w, w, w, w, g, g,
-            g, w, g, g, g, g, w, g,
-            g, g, w, w, w, w, g, g,
-            g, w, g, g, g, g, w, g,
-            g, g, g, g, g, g, g, g,
-        ].concat(),
-    };
 }
