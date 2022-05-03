@@ -18,7 +18,7 @@ pub const COLOR: [u8; 3] = [0, 255, 0];
 const DELAY: Duration = Duration::from_millis(5_000);
 
 struct State {
-    client: &'static (dyn SpotifyApiClientInterface + Sync),
+    client: &'static (dyn SpotifyApiClient + Sync),
     input_transformer: &'static (dyn EventTransformer + Sync),
     output_transformer: &'static (dyn EventTransformer + Sync),
     access_token: Mutex<Option<String>>,
@@ -35,7 +35,7 @@ pub struct Spotify {
 impl Spotify {
     pub fn new(
         config: Config,
-        client: &'static (dyn SpotifyApiClientInterface + Sync),
+        client: &'static (dyn SpotifyApiClient + Sync),
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {

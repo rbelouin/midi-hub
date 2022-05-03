@@ -3,7 +3,7 @@ use serde::Deserialize;
 pub type SpotifyApiResult<A> = std::result::Result<A, SpotifyApiError>;
 
 #[async_trait]
-pub trait SpotifyApiClientInterface {
+pub trait SpotifyApiClient {
     async fn request_token(
         &self,
         client_id: &String,

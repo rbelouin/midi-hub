@@ -13,12 +13,12 @@ impl From<reqwest::Error> for SpotifyApiError {
     }
 }
 
-pub const SPOTIFY_API_CLIENT: SpotifyApiClient = SpotifyApiClient {};
+pub const SPOTIFY_API_CLIENT: SpotifyApiClientImpl = SpotifyApiClientImpl {};
 
-pub struct SpotifyApiClient {}
+pub struct SpotifyApiClientImpl {}
 
 #[async_trait]
-impl SpotifyApiClientInterface for SpotifyApiClient {
+impl SpotifyApiClient for SpotifyApiClientImpl {
     async fn request_token(
         &self,
         client_id: &String,
