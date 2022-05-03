@@ -56,7 +56,7 @@ impl std::error::Error for SpotifyApiError {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SpotifyTokenResponse {
     pub access_token: String,
     pub token_type: String,
@@ -65,19 +65,19 @@ pub struct SpotifyTokenResponse {
     pub refresh_token: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SpotifyAlbumImage {
     pub width: u16,
     pub height: u16,
     pub url: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SpotifyAlbum {
     pub images: Vec<SpotifyAlbumImage>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SpotifyTrack {
     pub id: String,
     pub name: String,
@@ -85,18 +85,18 @@ pub struct SpotifyTrack {
     pub album: SpotifyAlbum,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SpotifyPlaylistResponse {
     pub href: String,
     pub items: Vec<SpotifyPlaylistItem>
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub  struct SpotifyPlaylistItem {
     pub track: SpotifyTrack,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SpotifyPlaybackState {
     pub is_playing: bool,
     pub item: SpotifyTrack,

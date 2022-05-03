@@ -138,3 +138,42 @@ fn headers(token: String) -> HeaderMap {
     headers.insert("Authorization", format!("Bearer {}", token).parse().unwrap());
     return headers;
 }
+
+#[cfg(test)]
+mod test {
+    use tokio::runtime::Builder;
+    use super::*;
+
+    #[test]
+    fn integration_test() {
+        let client_id = std::env::var("SPOTIFY_CLIENT_ID").expect("SPOTIFY_CLIENT_ID must be set to run this test");
+        let client_secret = std::env::var("SPOTIFY_CLIENT_SECRET").expect("SPOTIFY_CLIENT_SECRET must be set to run this test");
+        let refresh_token = std::env::var("SPOTIFY_REFRESH_TOKEN").expect("SPOTIFY_REFRESH_TOKEN must be set to run this test");
+        Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let token = SPOTIFY_API_CLIENT.refresh_token(
+                    &client_id,
+                    &client_secret,
+                    &refresh_token,
+                ).await.unwrap();
+
+                let playlist_tracks = SPOTIFY_API_CLIENT
+                    .get_playlist_tracks(token.access_token.clone(), "1vsF6HQZWDv6BHPPBevJMG".to_string())
+                    .await
+                    .unwrap();
+
+                assert_eq!(playlist_tracks.len(), 64, "The playlist under test should have 64 tracks");
+
+                let playback_state = SPOTIFY_API_CLIENT
+                    .get_playback_state(token.access_token.clone())
+                    .await
+                    .unwrap();
+
+                // Hopefully, no one is using the test account during the test execution!
+                assert_eq!(playback_state, None, "No tracks should be playing at the moment");
+            });
+    }
+}
