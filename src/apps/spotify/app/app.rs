@@ -5,7 +5,7 @@ use tokio::time::sleep;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::apps::{App, ServerCommand};
+use crate::apps::App;
 use crate::image::Image;
 use crate::midi::EventTransformer;
 
@@ -13,6 +13,7 @@ use super::super::config::Config;
 use super::super::client::*;
 
 use super::access_token::*;
+use super::playback::*;
 use super::render_logo::*;
 
 pub const NAME: &'static str = "spotify";
@@ -188,62 +189,49 @@ async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<Send
 async fn handle_spotify_task(config: Arc<Config>, state: Arc<State>, sender: Arc<Sender<Out>>, event: In) {
     match event {
         In::Midi(event) => {
-            let _ = match state.input_transformer.into_index(event) {
-                Ok(Some(index)) => with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
+            match state.input_transformer.into_index(event) {
+                Ok(Some(index)) => {
                     {
                         let mut last_action = state.last_action.lock().unwrap();
                         *last_action = Instant::now();
                     }
 
-                    let s = Arc::clone(&state);
-                    let playing = *s.playing.lock().unwrap();
-                    if playing == Some(index) {
-                        sender.send(ServerCommand::SpotifyPause.into()).await
-                            .unwrap_or_else(|err| eprintln!("[spotify] could not send pause command: {}", err));
-                        {
-                            let s = Arc::clone(&state);
-                            let mut playing = s.playing.lock().unwrap();
-                            *playing = None;
-                        }
-                        render_logo(Arc::clone(&state), Arc::clone(&sender)).await;
-                        return Ok(());
-                    }
+                    if let Some(track) = play_or_pause(Arc::clone(&state), Arc::clone(&sender), index).await {
+                        let cover_url = track.album.images.last().map(|image| {
+                            image.url.clone()
+                        });
 
-                    let track = start_or_resume_index(token, Arc::clone(&state), Arc::clone(&sender), index.into()).await;
-                    if track.is_ok() {
-                        let s = Arc::clone(&state);
-                        let mut playing = s.playing.lock().unwrap();
-                        *playing = Some(index);
-                    }
+                        match cover_url {
+                            Some(url) => {
+                                let image = Image::from_url(&url).await.map_err(|err| {
+                                    eprintln!("[spotify] could not retrieve image: {:?}", err)
+                                });
 
-                    let cover_url = track.as_ref().ok().map(|t| t.album.images.last().map(|i| i.url.clone())).flatten();
-                    match cover_url {
-                        Some(url) => {
-                            let image = Image::from_url(&url).await.map_err(|_| ());
-                            let event_out = image.and_then(|image| {
-                                return state.output_transformer.from_image(image).map_err(|_| ());
-                            });
+                                let event_out = image.and_then(|image| {
+                                    return state.output_transformer.from_image(image).map_err(|err| {
+                                        eprintln!("[spotify] could not transform image into a MIDI event: {}", err)
+                                    });
+                                });
 
-                            match event_out {
-                                Ok(event) => {
-                                    let _ = sender.send(event.into()).await;
+                                if let Ok(event) = event_out {
+                                    sender.send(event.into()).await.unwrap_or_else(|err| {
+                                        eprintln!("[spotify] could send the image back to the router: {}", err)
+                                    });
+
                                     sleep(DELAY).await;
                                     pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-                                    render_logo(Arc::clone(&state), Arc::clone(&sender)).await;
-                                },
-                                Err(_) => {
-                                    println!("Could not download and decode {}", url);
-                                },
-                            }
-                        },
-                        None => println!("No cover found for track {:?}", track.as_ref().map(|t| t.id.clone()).map_err(|_err| ())),
+                                }
+                            },
+                            None => {
+                                eprintln!("[spotify] no cover found for track {}", track.uri)
+                            },
+                        }
                     }
-                    return track.map(|_t| ());
-                }).await,
-                _ => {
-                    return ();
+
+                    render_logo(Arc::clone(&state), Arc::clone(&sender)).await;
                 },
-            };
+                _ => {},
+            }
         },
         _ => {},
     }
@@ -260,22 +248,5 @@ async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
             let mut state_tracks = state.tracks.lock().unwrap();
             *state_tracks = Some(tracks);
         },
-    }
-}
-
-async fn start_or_resume_index(token: String, state: Arc<State>, sender: Arc<Sender<Out>>, index: usize) -> SpotifyApiResult<SpotifyTrack> {
-    println!("[Spotify] Playing track {}", index);
-    let track = state.tracks.lock().unwrap().as_ref()
-        .and_then(|tracks| tracks.get(index))
-        .map(|track| track.clone());
-
-    return match track {
-        Some(track) => sender.send(ServerCommand::SpotifyPlay {
-            track_id: format!("spotify:track:{}", track.id.clone()),
-            access_token: token
-        }.into()).await
-            .map(|_| track)
-            .map_err(|err| SpotifyApiError::Other(Box::new(err))),
-        _ => Err(SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotFound)))),
     }
 }
