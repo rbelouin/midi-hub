@@ -11,7 +11,7 @@ pub async fn play_or_pause(
 ) -> Option<SpotifyTrack> {
     let playing = *state.playing.lock().unwrap();
     let track = if playing == Some(index) {
-        pause(state, sender).await;
+        pause(sender).await;
         None
     } else {
         play(state, sender, index).await
@@ -44,31 +44,16 @@ async fn play(
             sender.send(command.into()).await
                 .unwrap_or_else(|err| eprintln!("[spotify] could not send play command: {}", err));
 
-            // Update the state optimistically. Just like for the pause action below,
-            // if the track does not start playing, the playback event will be polled from
-            // Spotify’s Web API in a few seconds anyway.
-            let mut playing = state.playing.lock().unwrap();
-            *playing = Some(index as u16);
-
             Some(track)
         },
         _ => None,
     }
 }
 
-async fn pause(
-    state: Arc<State>,
-    sender: Arc<Sender<Out>>,
-) {
+async fn pause(sender: Arc<Sender<Out>>) {
     // Send the command to the web client via the web server
     sender.send(ServerCommand::SpotifyPause.into()).await
         .unwrap_or_else(|err| eprintln!("[spotify] could not send pause command: {}", err));
-
-    // Update the state, assuming that the track stopped playing successfully.
-    // Worst case: we’re wrong and the state will be put back to a valid state in a few sec,
-    // after we polled it from the Web API.
-    let mut playing = state.playing.lock().unwrap();
-    *playing = None;
 }
 
 #[cfg(test)]

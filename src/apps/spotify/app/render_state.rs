@@ -23,7 +23,7 @@ pub async fn render_state_reactively(
 
         // Render the cover of the track we’ve just started to play,
         // and only THEN render the logo + highlighted index.
-        if r == None && p.is_some() {
+        if r != p && p.is_some() {
             render_cover(Arc::clone(&state), Arc::clone(&sender)).await;
         }
 
