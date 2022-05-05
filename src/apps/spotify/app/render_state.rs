@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use crate::image::Image;
 use super::app::*;
@@ -6,7 +8,43 @@ use super::app::*;
 const G: [u8; 3] = [0, 255, 0];
 const W: [u8; 3] = [255, 255, 255];
 
-pub async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
+pub async fn render_state_reactively(
+    state: Arc<State>,
+    sender: Arc<Sender<Out>>,
+    terminate: Arc<AtomicBool>,
+) {
+    let rendered_index = Arc::new(Mutex::new(None));
+    // render once in the beginning, since the state will be unchanged.
+    render_state(Arc::clone(&state), Arc::clone(&sender)).await;
+
+    while terminate.load(Ordering::Relaxed) != true {
+        let r = Arc::clone(&rendered_index).lock().unwrap().clone();
+        let p = Arc::clone(&state).playing.lock().unwrap().clone();
+
+        // Render the cover of the track we’ve just started to play,
+        // and only THEN render the logo + highlighted index.
+        if r == None && p.is_some() {
+            render_cover(Arc::clone(&state), Arc::clone(&sender)).await;
+        }
+
+        if r != p {
+            render_state(Arc::clone(&state), Arc::clone(&sender)).await;
+            {
+                let mut rendered_index = rendered_index.lock().unwrap();
+                *rendered_index = p;
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(60)).await;
+    }
+}
+
+pub async fn render_state(state: Arc<State>, sender: Arc<Sender<Out>>) {
+    render_logo(Arc::clone(&state), Arc::clone(&sender)).await;
+    render_highlighted_index(Arc::clone(&state), Arc::clone(&sender)).await;
+}
+
+async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
     match state.output_transformer.from_image(get_logo()) {
         Err(err) => eprintln!("[spotify] could not render the spotify logo: {}", err),
         Ok(event) => {
@@ -15,7 +53,9 @@ pub async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
             });
         },
     }
+}
 
+async fn render_highlighted_index(state: Arc<State>, sender: Arc<Sender<Out>>) {
     let playing = state.playing.lock().unwrap().clone();
     match playing {
         Some(index) => match state.output_transformer.from_index_to_highlight(index) {
@@ -27,6 +67,48 @@ pub async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
             },
         },
         None => {},
+    }
+}
+
+async fn render_cover(state: Arc<State>, sender: Arc<Sender<Out>>) {
+    let track = {
+        let playing = state.playing.lock().unwrap();
+        playing.as_ref().and_then(|index| {
+            let tracks = state.tracks.lock().unwrap();
+            tracks.as_ref().map(|tracks| tracks[*index as usize].clone())
+        })
+    };
+
+    match track {
+        None => render_logo(state, sender).await,
+        Some(track) => {
+            match track.album.images.last().map(|image| image.url.clone()) {
+                None => {
+                    eprintln!("[spotify] no cover found for track {}", track.uri);
+                    render_logo(state, sender).await
+                },
+                Some(cover_url) => {
+                    let image = Image::from_url(&cover_url).await.map_err(|err| {
+                        eprintln!("[spotify] could not retrieve image: {:?}", err)
+                    });
+
+                    let event_out = image.and_then(|image| {
+                        return state.output_transformer.from_image(image).map_err(|err| {
+                            eprintln!("[spotify] could not transform image into a MIDI event: {}", err)
+                        });
+                    });
+
+                    if let Ok(event) = event_out {
+                        sender.send(event.into()).await.unwrap_or_else(|err| {
+                            eprintln!("[spotify] could send the image back to the router: {}", err)
+                        });
+
+                        // Render the cover image for as long as throttling takes effect
+                        tokio::time::sleep(super::app::DELAY).await;
+                    }
+                },
+            }
+        },
     }
 }
 
@@ -60,7 +142,7 @@ mod test {
 
 
     #[test]
-    fn render_logo_when_working_transformer_and_no_playing_index_then_render_logo() {
+    fn render_state_when_working_transformer_and_no_playing_index_then_render_state() {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
@@ -109,7 +191,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                render_logo(state, sender).await;
+                render_state(state, sender).await;
                 let event = receiver.recv().await.unwrap();
 
                 assert_eq!(event, Out::Midi(Event::SysEx(vec![
@@ -130,7 +212,7 @@ mod test {
     }
 
     #[test]
-    fn render_logo_when_working_transformer_and_playing_index_then_render_logo_and_highlight_index() {
+    fn render_state_when_working_transformer_and_playing_index_then_render_logo_and_highlight_index() {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
@@ -179,7 +261,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                render_logo(state, sender).await;
+                render_state(state, sender).await;
                 let event = receiver.recv().await.unwrap();
 
                 assert_eq!(event, Out::Midi(Event::SysEx(vec![
@@ -203,7 +285,7 @@ mod test {
     }
 
     #[test]
-    fn render_logo_when_transformer_supports_only_highlighting_and_playing_index_then_and_highlight_index() {
+    fn render_state_when_transformer_supports_only_highlighting_and_playing_index_then_and_highlight_index() {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
@@ -248,7 +330,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                render_logo(state, sender).await;
+                render_state(state, sender).await;
 
                 let event = receiver.recv().await.unwrap();
                 assert_eq!(event, Out::Midi(Event::Midi([42, 42, 42, 42])));
@@ -259,7 +341,7 @@ mod test {
     }
 
     #[test]
-    fn render_logo_when_transformer_supports_nothing_and_playing_index_then_do_nothing() {
+    fn render_state_when_transformer_supports_nothing_and_playing_index_then_do_nothing() {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
@@ -304,7 +386,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                render_logo(state, sender).await;
+                render_state(state, sender).await;
 
                 let event = receiver.recv().await;
                 assert_eq!(event, None);

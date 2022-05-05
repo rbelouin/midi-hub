@@ -1,24 +1,18 @@
-use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::apps::spotify::config::Config;
 use crate::apps::spotify::client::SpotifyApiResult;
-use super::app::{Out, Sender, State};
+use super::app::State;
 
 use super::access_token::with_access_token;
 
-pub async fn poll_state<F, Fut>(
+pub async fn poll_state(
     config: Arc<Config>,
     state: Arc<State>,
-    out_sender: Arc<Sender<Out>>,
     terminate: Arc<AtomicBool>,
-    render_logo: F,
-) where
-    F: Fn(Arc<State>, Arc<Sender<Out>>) -> Fut,
-    Fut: Future<Output = ()>,
-{
+) {
     while terminate.load(Ordering::Relaxed) != true {
         match get_currently_playing_index(Arc::clone(&config), Arc::clone(&state)).await {
             Ok(currently_playing) => {
@@ -29,7 +23,6 @@ pub async fn poll_state<F, Fut>(
                         let mut playing = state.playing.lock().unwrap();
                         *playing = currently_playing;
                     }
-                    render_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
                 }
             },
             Err(err) => eprintln!("[spotify] could not poll playback state: {}", err),
@@ -67,10 +60,7 @@ mod test {
 
     use mockall::predicate::*;
     use tokio::runtime::Builder;
-    use tokio::sync::mpsc::channel;
-    use tokio::sync::mpsc::error::TryRecvError;
 
-    use crate::apps::MidiEvent;
     use crate::apps::spotify::client::{
         MockSpotifyApiClient,
         SpotifyAlbum,
@@ -161,10 +151,6 @@ mod test {
             playing: Mutex::new(None),
         });
 
-        async fn render_logo(_: Arc<State>, _: Arc<Sender<Out>>) {}
-
-        let (sender, _) = channel::<Out>(32);
-        let sender = Arc::new(sender);
         Builder::new_current_thread()
             .build()
             .unwrap()
@@ -180,9 +166,7 @@ mod test {
                 poll_state(
                     Arc::clone(&config),
                     Arc::clone(&state),
-                    Arc::clone(&sender),
                     terminate,
-                    render_logo,
                 ).await;
             });
     }
@@ -213,12 +197,6 @@ mod test {
             playing: Mutex::new(None),
         });
 
-        async fn render_logo(_: Arc<State>, _: Arc<Sender<Out>>) {
-            panic!("render_logo should not be called");
-        }
-
-        let (sender, mut receiver) = channel::<Out>(32);
-        let sender = Arc::new(sender);
         Builder::new_current_thread()
             .build()
             .unwrap()
@@ -233,18 +211,13 @@ mod test {
                 poll_state(
                     Arc::clone(&config),
                     Arc::clone(&state),
-                    Arc::clone(&sender),
                     terminate,
-                    render_logo,
                 ).await;
             });
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn test_poll_state_when_starts_playing_then_render_logo() {
+    fn test_poll_state_when_starts_playing_then_update_state() {
         let mut client = Box::new(MockSpotifyApiClient::new());
         client.expect_refresh_token().times(0);
 
@@ -280,16 +253,6 @@ mod test {
             playing: Mutex::new(None),
         });
 
-        async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
-            // Conscious Club is the track with index 1
-            assert_eq!(*state.playing.lock().unwrap(), Some(1));
-
-            // Pretend that render_logo is writing something to the channel
-            let _ = sender.send(Out::Midi(MidiEvent::Midi([1, 2, 3, 4]))).await;
-        }
-
-        let (sender, mut receiver) = channel::<Out>(32);
-        let sender = Arc::new(sender);
         Builder::new_current_thread()
             .build()
             .unwrap()
@@ -305,23 +268,13 @@ mod test {
                 poll_state(
                     Arc::clone(&config),
                     Arc::clone(&state),
-                    Arc::clone(&sender),
                     terminate,
-                    render_logo,
                 ).await;
             });
-
-        // The fake event should be received first
-        let event = receiver.try_recv();
-        assert_eq!(event, Ok(Out::Midi(MidiEvent::Midi([1, 2, 3, 4]))));
-
-        // Then the channel should disconnect
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn test_poll_state_when_stops_playing_then_render_logo() {
+    fn test_poll_state_when_stops_playing_then_update_state() {
         let mut client = Box::new(MockSpotifyApiClient::new());
         client.expect_refresh_token().times(0);
 
@@ -357,15 +310,6 @@ mod test {
             playing: Mutex::new(Some(0)),
         });
 
-        async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
-            assert_eq!(*state.playing.lock().unwrap(), None);
-
-            // Pretend that render_logo is writing something to the channel
-            let _ = sender.send(Out::Midi(MidiEvent::Midi([5, 6, 7, 8]))).await;
-        }
-
-        let (sender, mut receiver) = channel::<Out>(32);
-        let sender = Arc::new(sender);
         Builder::new_current_thread()
             .build()
             .unwrap()
@@ -381,23 +325,13 @@ mod test {
                 poll_state(
                     Arc::clone(&config),
                     Arc::clone(&state),
-                    Arc::clone(&sender),
                     terminate,
-                    render_logo,
                 ).await;
             });
-
-        // The fake event should be received first
-        let event = receiver.try_recv();
-        assert_eq!(event, Ok(Out::Midi(MidiEvent::Midi([5, 6, 7, 8]))));
-
-        // Then the channel should disconnect
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn test_poll_state_when_pauses_playing_then_render_logo() {
+    fn test_poll_state_when_pauses_playing_then_update_state() {
         let mut client = Box::new(MockSpotifyApiClient::new());
         client.expect_refresh_token().times(0);
 
@@ -436,15 +370,6 @@ mod test {
             playing: Mutex::new(Some(0)),
         });
 
-        async fn render_logo(state: Arc<State>, sender: Arc<Sender<Out>>) {
-            assert_eq!(*state.playing.lock().unwrap(), None);
-
-            // Pretend that render_logo is writing something to the channel
-            let _ = sender.send(Out::Midi(MidiEvent::Midi([5, 6, 7, 8]))).await;
-        }
-
-        let (sender, mut receiver) = channel::<Out>(32);
-        let sender = Arc::new(sender);
         Builder::new_current_thread()
             .build()
             .unwrap()
@@ -460,19 +385,9 @@ mod test {
                 poll_state(
                     Arc::clone(&config),
                     Arc::clone(&state),
-                    Arc::clone(&sender),
                     terminate,
-                    render_logo,
                 ).await;
             });
-
-        // The fake event should be received first
-        let event = receiver.try_recv();
-        assert_eq!(event, Ok(Out::Midi(MidiEvent::Midi([5, 6, 7, 8]))));
-
-        // Then the channel should disconnect
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
@@ -507,12 +422,6 @@ mod test {
             playing: Mutex::new(None),
         });
 
-        async fn render_logo(_: Arc<State>, _: Arc<Sender<Out>>) {
-            panic!("render_logo should not be called");
-        }
-
-        let (sender, mut receiver) = channel::<Out>(32);
-        let sender = Arc::new(sender);
         Builder::new_current_thread()
             .build()
             .unwrap()
@@ -527,14 +436,8 @@ mod test {
                 poll_state(
                     Arc::clone(&config),
                     Arc::clone(&state),
-                    Arc::clone(&sender),
                     terminate,
-                    render_logo,
                 ).await;
             });
-
-        // Then the channel should disconnect
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 }
