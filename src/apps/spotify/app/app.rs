@@ -3,6 +3,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use crate::apps::App;
@@ -14,6 +15,7 @@ use super::super::client::*;
 
 use super::access_token::*;
 use super::playback::*;
+use super::poll_state::*;
 use super::render_logo::*;
 
 pub const NAME: &'static str = "spotify";
@@ -74,7 +76,13 @@ impl Spotify {
                 let poll_state_state = Arc::clone(&state);
                 let poll_state_sender = Arc::clone(&out_sender);
                 tokio::spawn(async move {
-                    poll_state(poll_state_config, poll_state_state, poll_state_sender).await;
+                    poll_state(
+                        poll_state_config,
+                        poll_state_state,
+                        poll_state_sender,
+                        Arc::new(AtomicBool::new(false)),
+                        render_logo,
+                    ).await;
                 });
 
                 let listen_config = Arc::clone(&config);
@@ -136,53 +144,6 @@ async fn listen_events(
         } else {
             println!("Ignoring event: {:?}", event);
         }
-    }
-}
-
-async fn poll_state(config: Arc<Config>, state: Arc<State>, out_sender: Arc<Sender<Out>>) {
-    loop {
-        with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
-            let playback_state = state.client.get_playback_state(token).await.map_err(|err| {
-                eprintln!("error: {:?}", err);
-                err
-            })?;
-            let playing_index = if let Some(playback_state) = playback_state {
-                if playback_state.is_playing {
-                    state.tracks.lock()
-                        .expect("should be able to lock state.tracks")
-                        .as_ref()
-                        .and_then(|tracks| {
-                            for i in 0..tracks.len() {
-                                if tracks[i].id == playback_state.item.id {
-                                    return Some(i as u16);
-                                }
-                            }
-                            return None;
-                        })
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            let has_changed = {
-                let mut playing = state.playing.lock()
-                    .expect("should be able to lock state.playing");
-                let previous_value = playing.clone();
-                *playing = playing_index;
-                playing_index != previous_value
-            };
-
-            if has_changed {
-                render_logo(Arc::clone(&state), Arc::clone(&out_sender)).await;
-            }
-
-            Ok(())
-        }).await.unwrap_or_else(|_| {
-            eprintln!("[spotify] error when polling and updating state")
-        });
-        std::thread::sleep(Duration::from_millis(1_000));
     }
 }
 
