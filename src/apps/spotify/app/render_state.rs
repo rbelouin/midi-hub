@@ -188,6 +188,7 @@ mod test {
         let sender = Arc::new(sender);
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -258,6 +259,7 @@ mod test {
         let sender = Arc::new(sender);
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -327,6 +329,7 @@ mod test {
         let sender = Arc::new(sender);
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -383,6 +386,7 @@ mod test {
         let sender = Arc::new(sender);
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {

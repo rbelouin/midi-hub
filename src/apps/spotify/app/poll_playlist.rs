@@ -128,6 +128,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -174,6 +175,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -222,6 +224,7 @@ mod test {
 
         let thread_state = Arc::clone(&state);
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -271,6 +274,7 @@ mod test {
 
         let thread_state = Arc::clone(&state);
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {

@@ -28,7 +28,7 @@ pub async fn poll_state(
             Err(err) => eprintln!("[spotify] could not poll playback state: {}", err),
         }
 
-        std::thread::sleep(Duration::from_millis(1_000));
+        tokio::time::sleep(Duration::from_millis(1_000)).await;
     }
 }
 
@@ -152,6 +152,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -198,6 +199,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -254,6 +256,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -311,6 +314,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -371,6 +375,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
@@ -423,6 +428,7 @@ mod test {
         });
 
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async move {
