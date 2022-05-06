@@ -14,6 +14,7 @@ use super::super::client::*;
 
 use super::access_token::*;
 use super::playback::*;
+use super::poll_events::*;
 use super::poll_state::*;
 use super::render_state::*;
 
@@ -71,6 +72,9 @@ impl Spotify {
 
         std::thread::spawn(move || {
             runtime.block_on(async move {
+                // Pull the playlist only once, when we start
+                pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
+
                 let poll_state_config = Arc::clone(&config);
                 let poll_state_state = Arc::clone(&state);
                 tokio::spawn(async move {
@@ -91,10 +95,9 @@ impl Spotify {
                     ).await;
                 });
 
-                let listen_config = Arc::clone(&config);
-                let listen_state = Arc::clone(&state);
-                let listen_sender = Arc::clone(&out_sender);
-                listen_events(listen_config, listen_state, listen_sender, in_receiver).await;
+                let poll_events_state = Arc::clone(&state);
+                let poll_events_sender = Arc::clone(&out_sender);
+                poll_events(poll_events_state, poll_events_sender, in_receiver, play_or_pause).await;
             });
         });
 
@@ -126,47 +129,6 @@ impl App for Spotify {
 
     fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
-    }
-}
-
-async fn listen_events(
-    config: Arc<Config>,
-    state: Arc<State>,
-    out_sender: Arc<Sender<Out>>,
-    mut in_receiver: Receiver<In>,
-) {
-    pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
-    while let Some(event) = in_receiver.recv().await {
-        let state = Arc::clone(&state);
-        let time_elapsed = {
-            let last_action = state.last_action.lock().unwrap();
-            last_action.elapsed()
-        };
-
-        if time_elapsed > DELAY {
-            tokio::spawn(handle_spotify_task(Arc::clone(&state), Arc::clone(&out_sender), event));
-        } else {
-            println!("Ignoring event: {:?}", event);
-        }
-    }
-}
-
-async fn handle_spotify_task(state: Arc<State>, sender: Arc<Sender<Out>>, event: In) {
-    match event {
-        In::Midi(event) => {
-            match state.input_transformer.into_index(event) {
-                Ok(Some(index)) => {
-                    {
-                        let mut last_action = state.last_action.lock().unwrap();
-                        *last_action = Instant::now();
-                    }
-
-                    play_or_pause(Arc::clone(&state), Arc::clone(&sender), index).await; 
-                },
-                _ => {},
-            }
-        },
-        _ => {},
     }
 }
 

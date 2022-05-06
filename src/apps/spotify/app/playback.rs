@@ -1,29 +1,26 @@
 use std::sync::Arc;
 
 use crate::apps::ServerCommand;
-use crate::apps::spotify::client::SpotifyTrack;
 use super::app::*;
 
 pub async fn play_or_pause(
     state: Arc<State>,
     sender: Arc<Sender<Out>>,
     index: u16,
-) -> Option<SpotifyTrack> {
+) {
     let playing = *state.playing.lock().unwrap();
-    let track = if playing == Some(index) {
-        pause(sender).await;
-        None
+    if playing == Some(index) {
+        pause(sender).await
     } else {
         play(state, sender, index).await
     };
-    return track;
 }
 
 async fn play(
     state: Arc<State>,
     sender: Arc<Sender<Out>>,
     index: u16,
-) -> Option<SpotifyTrack> {
+) {
     // Find the track corresponding to the given index
     let track = state.tracks.lock().unwrap().as_ref()
         .and_then(|tracks| tracks.get(index as usize))
@@ -36,17 +33,15 @@ async fn play(
                 .expect("it should not be possible to have tracks in memory without a valid access_token");
 
             let command = ServerCommand::SpotifyPlay {
-                track_id: track.uri.clone(),
+                track_id: track.uri,
                 access_token,
             };
 
             // Send the command to the web client via the web server
             sender.send(command.into()).await
                 .unwrap_or_else(|err| eprintln!("[spotify] could not send play command: {}", err));
-
-            Some(track)
         },
-        _ => None,
+        _ => {},
     }
 }
 
@@ -64,7 +59,7 @@ mod test {
     use tokio::runtime::Builder;
     use tokio::sync::mpsc::channel;
 
-    use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyAlbum, SpotifyAlbumImage};
+    use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyAlbum, SpotifyAlbumImage, SpotifyTrack};
     use super::*;
 
     fn lingus() -> SpotifyTrack {
@@ -139,8 +134,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                let result = play_or_pause(Arc::clone(&state), Arc::new(sender), 1).await;
-                assert_eq!(result, Some(conscious_club()));
+                play_or_pause(Arc::clone(&state), Arc::new(sender), 1).await;
 
                 let event = receiver.recv().await;
                 assert_eq!(event, Some(Out::Server(ServerCommand::SpotifyPlay {
@@ -171,8 +165,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                let result = play_or_pause(Arc::clone(&state), Arc::new(sender), 24).await;
-                assert_eq!(result, None);
+                play_or_pause(Arc::clone(&state), Arc::new(sender), 24).await;
 
                 let event = receiver.recv().await;
                 assert_eq!(event, None);
@@ -197,8 +190,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                let result = play_or_pause(Arc::clone(&state), Arc::new(sender), 1).await;
-                assert_eq!(result, None);
+                play_or_pause(Arc::clone(&state), Arc::new(sender), 1).await;
 
                 let event = receiver.recv().await;
                 assert_eq!(event, Some(Out::Server(ServerCommand::SpotifyPause)));
@@ -226,8 +218,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                let result = play_or_pause(Arc::clone(&state), Arc::new(sender), 0).await;
-                assert_eq!(result, Some(lingus()));
+                play_or_pause(Arc::clone(&state), Arc::new(sender), 0).await;
 
                 let event = receiver.recv().await;
                 assert_eq!(event, Some(Out::Server(ServerCommand::SpotifyPlay {
@@ -258,8 +249,7 @@ mod test {
             .build()
             .unwrap()
             .block_on(async move {
-                let result = play_or_pause(Arc::clone(&state), Arc::new(sender), 24).await;
-                assert_eq!(result, None);
+                play_or_pause(Arc::clone(&state), Arc::new(sender), 24).await;
 
                 let event = receiver.recv().await;
                 assert_eq!(event, None);
