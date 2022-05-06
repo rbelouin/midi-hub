@@ -12,16 +12,17 @@ use crate::midi::EventTransformer;
 use super::super::config::Config;
 use super::super::client::*;
 
-use super::access_token::*;
 use super::playback::*;
 use super::poll_events::*;
 use super::poll_state::*;
+use super::poll_playlist::*;
 use super::render_state::*;
 
 pub const NAME: &'static str = "spotify";
 pub const COLOR: [u8; 3] = [0, 255, 0];
 
 pub const DELAY: Duration = Duration::from_millis(5_000);
+pub const PLAYLIST_POLLING_INTERVAL: Duration = Duration::from_secs(600);
 
 pub type In = crate::apps::In;
 pub type Out = crate::apps::Out;
@@ -72,8 +73,16 @@ impl Spotify {
 
         std::thread::spawn(move || {
             runtime.block_on(async move {
-                // Pull the playlist only once, when we start
-                pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
+                let poll_playlist_config = Arc::clone(&config);
+                let poll_playlist_state = Arc::clone(&state);
+                tokio::spawn(async move {
+                    poll_playlist(
+                        poll_playlist_config,
+                        poll_playlist_state,
+                        PLAYLIST_POLLING_INTERVAL,
+                        Arc::new(AtomicBool::new(false)),
+                    ).await;
+                });
 
                 let poll_state_config = Arc::clone(&config);
                 let poll_state_state = Arc::clone(&state);
@@ -129,19 +138,5 @@ impl App for Spotify {
 
     fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
-    }
-}
-
-async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
-    let tracks = with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
-        return state.client.get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await;
-    }).await;
-
-    match tracks {
-        Err(_) => println!("[Spotify] could not pull tracks from playlist {}", config.playlist_id),
-        Ok(tracks) => {
-            let mut state_tracks = state.tracks.lock().unwrap();
-            *state_tracks = Some(tracks);
-        },
     }
 }
