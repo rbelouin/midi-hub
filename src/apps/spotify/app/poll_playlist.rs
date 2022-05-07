@@ -38,6 +38,7 @@ mod test {
     use tokio::runtime::Builder;
 
     use crate::apps::Out;
+    use crate::apps::spotify::app::app::PlaybackState;
     use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{
         MockSpotifyApiClient,
@@ -237,7 +238,7 @@ mod test {
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(tracks)),
-            playing: Mutex::new(None),
+            playback: Mutex::new(PlaybackState::PAUSED),
             config,
             sender,
         })

@@ -182,7 +182,7 @@ mod test {
             access_token: Mutex::new(initial_access_token.map(|s| s.into())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(None),
-            playing: Mutex::new(None),
+            playback: Mutex::new(PlaybackState::PAUSED),
             config,
             sender,
         })

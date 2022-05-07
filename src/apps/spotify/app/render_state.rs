@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::image::Image;
 use super::app::*;
+use super::app::PlaybackState::*;
 
 const G: [u8; 3] = [0, 255, 0];
 const W: [u8; 3] = [255, 255, 255];
@@ -17,23 +18,33 @@ pub async fn render_state_reactively(
     render_state(Arc::clone(&state)).await;
 
     while terminate.load(Ordering::Relaxed) != true {
-        let r = Arc::clone(&rendered_index).lock().unwrap().clone();
-        let p = Arc::clone(&state).playing.lock().unwrap().clone();
+        let r_index = Arc::clone(&rendered_index).lock().unwrap().clone();
+        let playback = Arc::clone(&state).playback.lock().unwrap().clone();
 
-        // Render the cover of the track we’ve just started to play,
-        // and only THEN render the logo + highlighted index.
-        if r != p && p.is_some() {
-            render_cover(Arc::clone(&state)).await;
+        match playback {
+            PAUSED | PAUSING => {
+                if r_index != None {
+                    render_state(Arc::clone(&state)).await;
+                    let mut rendered_index = rendered_index.lock().unwrap();
+                    *rendered_index = None;
+                }
+            },
+            REQUESTED(index) => {
+                if r_index != Some(index) {
+                    render_cover(Arc::clone(&state)).await;
+                    render_state(Arc::clone(&state)).await;
+                    let mut rendered_index = rendered_index.lock().unwrap();
+                    *rendered_index = Some(index);
+                }
+            },
+            PLAYING(index) => {
+                if r_index != Some(index) {
+                    render_state(Arc::clone(&state)).await;
+                    let mut rendered_index = rendered_index.lock().unwrap();
+                    *rendered_index = Some(index);
+                }
+            },
         }
-
-        if r != p {
-            render_state(Arc::clone(&state)).await;
-            {
-                let mut rendered_index = rendered_index.lock().unwrap();
-                *rendered_index = p;
-            }
-        }
-
         tokio::time::sleep(Duration::from_millis(60)).await;
     }
 }
@@ -55,9 +66,10 @@ async fn render_logo(state: Arc<State>) {
 }
 
 async fn render_highlighted_index(state: Arc<State>) {
-    let playing = state.playing.lock().unwrap().clone();
-    match playing {
-        Some(index) => match state.output_transformer.from_index_to_highlight(index) {
+    let playback = state.playback.lock().unwrap().clone();
+
+    match playback {
+        REQUESTED(index) | PLAYING(index) => match state.output_transformer.from_index_to_highlight(index) {
             Err(err) => eprintln!("[spotify] could not highlight the index {}: {}", index, err),
             Ok(event) => {
                 state.sender.send(event.into()).await.unwrap_or_else(|err| {
@@ -65,17 +77,20 @@ async fn render_highlighted_index(state: Arc<State>) {
                 });
             },
         },
-        None => {},
+        _ => {},
     }
 }
 
 async fn render_cover(state: Arc<State>) {
     let track = {
-        let playing = state.playing.lock().unwrap();
-        playing.as_ref().and_then(|index| {
-            let tracks = state.tracks.lock().unwrap();
-            tracks.as_ref().map(|tracks| tracks[*index as usize].clone())
-        })
+        let playback = state.playback.lock().unwrap().clone();
+        match playback {
+            PAUSED | PAUSING => None,
+            PLAYING(index) | REQUESTED(index) => {
+                let tracks = state.tracks.lock().unwrap();
+                tracks.as_ref().map(|tracks| tracks[index as usize].clone())
+            },
+        }
     };
 
     match track {
@@ -178,7 +193,7 @@ mod test {
         let state = get_state_with(
             &FAKE_EVENT_TRANSFORMER,
             vec![],
-            None,
+            PAUSED,
             sender,
         );
 
@@ -239,7 +254,7 @@ mod test {
         let state = get_state_with(
             &FAKE_EVENT_TRANSFORMER,
             vec![],
-            Some(42),
+            PLAYING(42),
             sender,
         );
 
@@ -299,7 +314,7 @@ mod test {
         let state = get_state_with(
             &FAKE_EVENT_TRANSFORMER,
             vec![],
-            Some(42),
+            PLAYING(42),
             sender,
         );
 
@@ -346,7 +361,7 @@ mod test {
         let state = get_state_with(
             &FAKE_EVENT_TRANSFORMER,
             vec![],
-            Some(42),
+            PLAYING(42),
             sender,
         );
 
@@ -361,7 +376,7 @@ mod test {
     fn get_state_with(
         transformer: &'static (dyn EventTransformer + Sync),
         tracks: Vec<SpotifyTrack>,
-        playing_index: Option<u16>,
+        playback: PlaybackState,
         sender: Sender<Out>,
     ) -> Arc<State> {
         let client = Box::new(MockSpotifyApiClient::new());
@@ -380,7 +395,7 @@ mod test {
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(tracks)),
-            playing: Mutex::new(playing_index),
+            playback: Mutex::new(playback),
             config,
             sender,
         })

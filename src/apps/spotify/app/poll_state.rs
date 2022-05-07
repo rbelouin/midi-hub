@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::apps::spotify::client::SpotifyApiResult;
 use super::app::State;
+use super::app::PlaybackState::*;
 
 use super::access_token::with_access_token;
 
@@ -13,9 +14,47 @@ pub async fn poll_state(
 ) {
     while terminate.load(Ordering::Relaxed) != true {
         match get_currently_playing_index(Arc::clone(&state)).await {
-            Ok(currently_playing) => {
-                let mut playing = state.playing.lock().unwrap();
-                *playing = currently_playing;
+            Ok(spotify_playback) => {
+                let mut playback = state.playback.lock().unwrap();
+                let throttling_elapsed = state.last_action.lock().unwrap().elapsed() > super::app::DELAY;
+
+                match (playback.clone(), spotify_playback) {
+                    (PAUSING, None) => {
+                        // Spotify has caught up with our local state
+                        *playback = PAUSED;
+                    },
+                    (PAUSING, Some(spotify_index)) => {
+                        // We only accept that our local state is corrupted after the throttling
+                        // delay has elapsed.
+                        if throttling_elapsed {
+                            *playback = PLAYING(spotify_index);
+                        }
+                    },
+                    (REQUESTED(local_index), Some(spotify_index)) if local_index == spotify_index => {
+                        *playback = PLAYING(spotify_index);
+                    },
+                    (REQUESTED(_), Some(spotify_index)) => {
+                        // We only accept that our local state is corrupted after the throttling
+                        // delay has elapsed.
+                        if throttling_elapsed {
+                            *playback = PLAYING(spotify_index);
+                        }
+                    },
+                    (REQUESTED(_), None) => {
+                        // We only accept that our local state is corrupted after the throttling
+                        // delay has elapsed.
+                        if throttling_elapsed {
+                            *playback = PAUSED;
+                        }
+                    },
+                    // For all other cases, we accept the state we get back from Spotify
+                    (_, None) => {
+                        *playback = PAUSED;
+                    }
+                    (_, Some(index)) => {
+                        *playback = PLAYING(index);
+                    },
+                }
             },
             Err(err) => eprintln!("[spotify] could not poll playback state: {}", err),
         }
@@ -55,6 +94,7 @@ mod test {
     use tokio::runtime::Builder;
 
     use crate::apps::Out;
+    use crate::apps::spotify::app::app::PlaybackState;
     use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{
         MockSpotifyApiClient,
@@ -129,7 +169,7 @@ mod test {
             .with(eq("access_token".to_string()))
             .returning(|_| Ok(None));
 
-        let state = get_state_with_playing_and_tracks_and_client(None, vec![lingus(), conscious_club()], client);
+        let state = get_state_with_playing_and_tracks_and_client(PAUSED, vec![lingus(), conscious_club()], client);
 
         with_runtime(async move {
             let terminate = Arc::new(AtomicBool::new(false));
@@ -156,7 +196,7 @@ mod test {
             .with(eq("access_token".to_string()))
             .returning(|_| Ok(None));
 
-        let state = get_state_with_playing_and_tracks_and_client(None, vec![lingus(), conscious_club()], client);
+        let state = get_state_with_playing_and_tracks_and_client(PAUSED, vec![lingus(), conscious_club()], client);
 
         with_runtime(async move {
             let terminate = Arc::new(AtomicBool::new(false));
@@ -193,7 +233,7 @@ mod test {
                 item: conscious_club(),
             })));
 
-        let state = get_state_with_playing_and_tracks_and_client(None, vec![lingus(), conscious_club()], client);
+        let state = get_state_with_playing_and_tracks_and_client(PAUSED, vec![lingus(), conscious_club()], client);
 
         with_runtime(async move {
             let terminate = Arc::new(AtomicBool::new(false));
@@ -231,7 +271,7 @@ mod test {
             .with(eq("access_token".to_string()))
             .returning(|_| Ok(None));
 
-        let state = get_state_with_playing_and_tracks_and_client(Some(0), vec![lingus(), conscious_club()], client);
+        let state = get_state_with_playing_and_tracks_and_client(PLAYING(0), vec![lingus(), conscious_club()], client);
 
         with_runtime(async move {
             let terminate = Arc::new(AtomicBool::new(false));
@@ -272,7 +312,7 @@ mod test {
                 item: lingus(),
             })));
 
-        let state = get_state_with_playing_and_tracks_and_client(Some(0), vec![lingus(), conscious_club()], client);
+        let state = get_state_with_playing_and_tracks_and_client(PLAYING(0), vec![lingus(), conscious_club()], client);
 
         with_runtime(async move {
             let terminate = Arc::new(AtomicBool::new(false));
@@ -304,7 +344,7 @@ mod test {
                 item: conscious_club(),
             })));
 
-        let state = get_state_with_playing_and_tracks_and_client(None, vec![lingus()], client);
+        let state = get_state_with_playing_and_tracks_and_client(PAUSED, vec![lingus()], client);
 
         with_runtime(async move {
             let terminate = Arc::new(AtomicBool::new(false));
@@ -322,7 +362,7 @@ mod test {
     }
 
     fn get_state_with_playing_and_tracks_and_client(
-        playing: Option<u16>,
+        playback: PlaybackState,
         tracks: Vec<SpotifyTrack>,
         mocked_client: MockSpotifyApiClient,
     ) -> Arc<State> {
@@ -342,7 +382,7 @@ mod test {
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(tracks)),
-            playing: Mutex::new(playing),
+            playback: Mutex::new(playback),
             config,
             sender,
         })

@@ -224,7 +224,7 @@ mod test {
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(last_action),
             tracks: Mutex::new(Some(vec![])),
-            playing: Mutex::new(None),
+            playback: Mutex::new(PlaybackState::PAUSED),
             config,
             sender,
         })

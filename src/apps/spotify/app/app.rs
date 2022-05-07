@@ -36,9 +36,17 @@ pub struct State {
     pub access_token: Mutex<Option<String>>,
     pub last_action: Mutex<Instant>,
     pub tracks: Mutex<Option<Vec<SpotifyTrack>>>,
-    pub playing: Mutex<Option<u16>>,
+    pub playback: Mutex<PlaybackState>,
     pub config: Config,
     pub sender: Sender<Out>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PlaybackState {
+    PAUSED,
+    PAUSING,
+    REQUESTED(u16),
+    PLAYING(u16),
 }
 
 pub struct Spotify {
@@ -63,7 +71,7 @@ impl Spotify {
             access_token: Mutex::new(None),
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),
-            playing: Mutex::new(None),
+            playback: Mutex::new(PlaybackState::PAUSED),
             config,
             sender: out_sender,
         });
