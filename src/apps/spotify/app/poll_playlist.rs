@@ -2,42 +2,43 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::apps::spotify::config::Config;
 use super::app::State;
 
 use super::access_token::with_access_token;
 
 pub async fn poll_playlist(
-    config: Arc<Config>,
     state: Arc<State>,
     polling_interval: Duration,
     terminate: Arc<AtomicBool>,
 ) {
     while terminate.load(Ordering::Relaxed) != true {
-        pull_playlist_tracks(Arc::clone(&config), Arc::clone(&state)).await;
+        pull_playlist_tracks(Arc::clone(&state)).await;
         tokio::time::sleep(polling_interval).await;
     }
 }
 
-async fn pull_playlist_tracks(config: Arc<Config>, state: Arc<State>) {
-    with_access_token(Arc::clone(&config), Arc::clone(&state), |token| async {
-        let tracks = state.client.get_playlist_tracks(token, Arc::clone(&config).playlist_id.clone()).await?;
+async fn pull_playlist_tracks(state: Arc<State>) {
+    with_access_token(Arc::clone(&state), |token| async {
+        let tracks = state.client.get_playlist_tracks(token, Arc::clone(&state).config.playlist_id.clone()).await?;
         let mut state_tracks = state.tracks.lock().unwrap();
         *state_tracks = Some(tracks);
         Ok(())
     }).await.unwrap_or_else(|err| {
-        eprintln!("[spotify] could not pull tracks from playlist {}: {}", config.playlist_id, err);
+        eprintln!("[spotify] could not pull tracks from playlist {}: {}", state.config.playlist_id, err);
     });
 }
 
 #[cfg(test)]
 mod test {
+    use std::future::Future;
     use std::time::Instant;
     use std::sync::Mutex;
 
     use mockall::predicate::*;
     use tokio::runtime::Builder;
 
+    use crate::apps::Out;
+    use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{
         MockSpotifyApiClient,
         SpotifyAlbum,
@@ -104,195 +105,149 @@ mod test {
 
     #[test]
     fn test_poll_playlist_when_polling_interval_is_1s_then_poll_3_times_in_2500ms() {
-        let mut client = Box::new(MockSpotifyApiClient::new());
+        let mut client = MockSpotifyApiClient::new();
         client.expect_get_playlist_tracks()
             .times(3)
             .with(eq("access_token".to_string()), eq("playlist_id".to_string()))
             .returning(|_, _| Ok(vec![lingus(), conscious_club()]));
 
-        let config = Arc::new(Config {
-            playlist_id: "playlist_id".to_string(),
-            client_id: "client_id".to_string(),
-            client_secret: "client_secret".to_string(),
-            refresh_token: "refresh_token".to_string(),
-        });
+        let state = get_state_with_client_and_tracks(client, vec![]);
 
-        let state = Arc::new(State {
-            client,
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(Some("access_token".to_string())),
-            last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(None),
-            playing: Mutex::new(None),
-        });
+        with_runtime(async move {
+            let terminate = Arc::new(AtomicBool::new(false));
 
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let terminate = Arc::new(AtomicBool::new(false));
-
-                let terminate_copy = Arc::clone(&terminate);
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(2_500));
-                    terminate_copy.store(true, Ordering::Relaxed);
-                });
-
-                poll_playlist(
-                    Arc::clone(&config),
-                    Arc::clone(&state),
-                    Duration::from_millis(1_000),
-                    terminate,
-                ).await;
+            let terminate_copy = Arc::clone(&terminate);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(2_500));
+                terminate_copy.store(true, Ordering::Relaxed);
             });
+
+            poll_playlist(
+                Arc::clone(&state),
+                Duration::from_millis(1_000),
+                terminate,
+            ).await;
+        });
     }
 
     #[test]
     fn test_poll_playlist_when_polling_interval_is_2s_then_poll_2_times_in_2500ms() {
-        let mut client = Box::new(MockSpotifyApiClient::new());
+        let mut client = MockSpotifyApiClient::new();
         client.expect_get_playlist_tracks()
             .times(2)
             .with(eq("access_token".to_string()), eq("playlist_id".to_string()))
             .returning(|_, _| Ok(vec![lingus(), conscious_club()]));
 
-        let config = Arc::new(Config {
-            playlist_id: "playlist_id".to_string(),
-            client_id: "client_id".to_string(),
-            client_secret: "client_secret".to_string(),
-            refresh_token: "refresh_token".to_string(),
-        });
+        let state = get_state_with_client_and_tracks(client, vec![]);
 
-        let state = Arc::new(State {
-            client,
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(Some("access_token".to_string())),
-            last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(None),
-            playing: Mutex::new(None),
-        });
+        with_runtime(async move {
+            let terminate = Arc::new(AtomicBool::new(false));
 
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let terminate = Arc::new(AtomicBool::new(false));
-
-                let terminate_copy = Arc::clone(&terminate);
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(2_500));
-                    terminate_copy.store(true, Ordering::Relaxed);
-                });
-
-                poll_playlist(
-                    Arc::clone(&config),
-                    Arc::clone(&state),
-                    Duration::from_millis(2_000),
-                    terminate,
-                ).await;
+            let terminate_copy = Arc::clone(&terminate);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(2_500));
+                terminate_copy.store(true, Ordering::Relaxed);
             });
+
+            poll_playlist(
+                Arc::clone(&state),
+                Duration::from_millis(2_000),
+                terminate,
+            ).await;
+        });
     }
 
     #[test]
     fn test_poll_playlist_when_request_succeeds_then_update_state() {
-        let mut client = Box::new(MockSpotifyApiClient::new());
+        let mut client = MockSpotifyApiClient::new();
         client.expect_refresh_token().times(0);
         client.expect_get_playlist_tracks()
             .times(1)
             .with(eq("access_token".to_string()), eq("playlist_id".to_string()))
             .returning(|_, _| Ok(vec![lingus(), conscious_club()]));
 
-        let config = Arc::new(Config {
-            playlist_id: "playlist_id".to_string(),
-            client_id: "client_id".to_string(),
-            client_secret: "client_secret".to_string(),
-            refresh_token: "refresh_token".to_string(),
-        });
-
-        let state = Arc::new(State {
-            client,
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(Some("access_token".to_string())),
-            last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(None),
-            playing: Mutex::new(None),
-        });
+        let state = get_state_with_client_and_tracks(client, vec![]);
 
         let thread_state = Arc::clone(&state);
-        Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let terminate = Arc::new(AtomicBool::new(false));
+        with_runtime(async move {
+            let terminate = Arc::new(AtomicBool::new(false));
 
-                let terminate_copy = Arc::clone(&terminate);
-                std::thread::spawn(move || {
-                    terminate_copy.store(true, Ordering::Relaxed);
-                });
-
-                poll_playlist(
-                    Arc::clone(&config),
-                    thread_state,
-                    Duration::from_millis(100),
-                    terminate,
-                ).await;
+            let terminate_copy = Arc::clone(&terminate);
+            std::thread::spawn(move || {
+                terminate_copy.store(true, Ordering::Relaxed);
             });
+
+            poll_playlist(
+                thread_state,
+                Duration::from_millis(100),
+                terminate,
+            ).await;
+        });
 
         assert_eq!(*state.tracks.lock().unwrap(), Some(vec![lingus(), conscious_club()]));
     }
 
     #[test]
     fn test_poll_playlist_when_request_fails_then_do_not_update_state() {
-        let mut client = Box::new(MockSpotifyApiClient::new());
+        let mut client = MockSpotifyApiClient::new();
         client.expect_refresh_token().times(0);
         client.expect_get_playlist_tracks()
             .times(1)
             .with(eq("access_token".to_string()), eq("playlist_id".to_string()))
             .returning(|_, _| Err(SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotFound)))));
 
-        let config = Arc::new(Config {
+        let state = get_state_with_client_and_tracks(client, vec![lingus(), conscious_club()]);
+
+        let thread_state = Arc::clone(&state);
+        with_runtime(async move {
+            let terminate = Arc::new(AtomicBool::new(false));
+
+            let terminate_copy = Arc::clone(&terminate);
+            std::thread::spawn(move || {
+                terminate_copy.store(true, Ordering::Relaxed);
+            });
+
+            poll_playlist(
+                thread_state,
+                Duration::from_millis(100),
+                terminate,
+            ).await;
+        });
+
+        assert_eq!(*state.tracks.lock().unwrap(), Some(vec![lingus(), conscious_club()]));
+    }
+
+    fn get_state_with_client_and_tracks(
+        mocked_client: MockSpotifyApiClient,
+        tracks: Vec<SpotifyTrack>,
+    ) -> Arc<State> {
+        let (sender, _) = tokio::sync::mpsc::channel::<Out>(32);
+
+        let config = Config {
             playlist_id: "playlist_id".to_string(),
             client_id: "client_id".to_string(),
             client_secret: "client_secret".to_string(),
             refresh_token: "refresh_token".to_string(),
-        });
+        };
 
-        let state = Arc::new(State {
-            client,
+        Arc::new(State {
+            client: Box::new(mocked_client),
             input_transformer: crate::midi::devices::default::transformer(),
             output_transformer: crate::midi::devices::default::transformer(),
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(Some(vec![lingus(), conscious_club()])),
+            tracks: Mutex::new(Some(tracks)),
             playing: Mutex::new(None),
-        });
+            config,
+            sender,
+        })
+    }
 
-        let thread_state = Arc::clone(&state);
+    fn with_runtime<F>(f: F) -> F::Output where F: Future {
         Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap()
-            .block_on(async move {
-                let terminate = Arc::new(AtomicBool::new(false));
-
-                let terminate_copy = Arc::clone(&terminate);
-                std::thread::spawn(move || {
-                    terminate_copy.store(true, Ordering::Relaxed);
-                });
-
-                poll_playlist(
-                    Arc::clone(&config),
-                    thread_state,
-                    Duration::from_millis(100),
-                    terminate,
-                ).await;
-            });
-
-        assert_eq!(*state.tracks.lock().unwrap(), Some(vec![lingus(), conscious_club()]));
+            .block_on(f)
     }
 }

@@ -1,12 +1,11 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use crate::apps::spotify::config::Config; 
-use crate::apps::spotify::client::{SpotifyApiError, SpotifyApiResult, SpotifyTokenResponse}; 
+use crate::apps::spotify::client::{SpotifyApiError, SpotifyApiResult}; 
 
 use super::app::*;
 
-pub async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>, f: F) -> SpotifyApiResult<A> where
+pub async fn with_access_token<A, F, Fut>(state: Arc<State>, f: F) -> SpotifyApiResult<A> where
     F: Fn(String) -> Fut,
     Fut: Future<Output = SpotifyApiResult<A>>,
 {
@@ -17,7 +16,7 @@ pub async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>
             match f(token.to_string()).await {
                 Err(SpotifyApiError::Unauthorized) => {
                     println!("[Spotify] Retrying because of expired token");
-                    let token = fetch_and_store_access_token(config, state).await?;
+                    let token = fetch_and_store_access_token(state).await?;
                     return f(token).await;
                 },
                 Err(err) => Err(err),
@@ -26,17 +25,17 @@ pub async fn with_access_token<A, F, Fut>(config: Arc<Config>, state: Arc<State>
         },
         None => {
             println!("[Spotify] No token in memory");
-            let token = fetch_and_store_access_token(config, state).await?;
+            let token = fetch_and_store_access_token(state).await?;
             return f(token).await;
         },
     };
 }
 
-async fn fetch_and_store_access_token(config: Arc<Config>, state: Arc<State>) ->  SpotifyApiResult<String> {
+async fn fetch_and_store_access_token(state: Arc<State>) ->  SpotifyApiResult<String> {
     let token_response =  state.client.refresh_token(
-        &config.client_id,
-        &config.client_secret,
-        &config.refresh_token
+        &state.config.client_id,
+        &state.config.client_secret,
+        &state.config.refresh_token
     ).await?;
 
     let mut new_token = state.access_token.lock().unwrap();
@@ -52,54 +51,31 @@ mod test {
     use mockall::predicate::*;
     use tokio::runtime::Builder;
 
-    use crate::apps::spotify::client::MockSpotifyApiClient;
+    use crate::apps::spotify::config::Config;
+    use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyTokenResponse};
+
     use super::*;
 
     #[test]
     fn with_access_token_when_valid_token_in_state_then_do_not_refresh_token() {
-        let config = Arc::new(Config {
-            playlist_id: "playlist_id".to_string(),
-            client_id: "client_id".to_string(),
-            client_secret: "client_secret".to_string(),
-            refresh_token: "refresh_token".to_string(),
-        });
-
         let mut client = MockSpotifyApiClient::new();
         client.expect_refresh_token().times(0);
 
-        let state = Arc::new(State {
-            client: Box::new(client),
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(Some("access_token".to_string())),
-            last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(Some(vec![])),
-            playing: Mutex::new(None),
+        let state = get_state_with_token_and_client(Some("access_token"), client);
+
+        with_runtime(async move {
+            let result = with_access_token(state, |token| async {
+                let token = token;
+                assert_eq!(token, "access_token".to_string());
+                Ok(())
+            }).await;
+
+            assert!(result.is_ok());
         });
-
-        Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let result = with_access_token(config, state, |token| async {
-                    let token = token;
-                    assert_eq!(token, "access_token".to_string());
-                    Ok(())
-                }).await;
-
-                assert!(result.is_ok());
-            });
     }
 
     #[test]
     fn with_access_token_when_no_token_in_state_then_do_refresh_token() {
-        let config = Arc::new(Config {
-            playlist_id: "playlist_id".to_string(),
-            client_id: "client_id".to_string(),
-            client_secret: "client_secret".to_string(),
-            refresh_token: "refresh_token".to_string(),
-        });
-
         let mut client = MockSpotifyApiClient::new();
         client.expect_refresh_token()
             .times(1)
@@ -112,39 +88,21 @@ mod test {
                 refresh_token: Some("refresh_token".to_string()),
             }));
 
-        let state = Arc::new(State {
-            client: Box::new(client),
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(None),
-            last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(Some(vec![])),
-            playing: Mutex::new(None),
+        let state = get_state_with_token_and_client(None, client);
+
+        with_runtime(async move {
+            let result = with_access_token(state, |token| async {
+                let token = token;
+                assert_eq!(token, "access_token".to_string());
+                Ok(())
+            }).await;
+
+            assert!(result.is_ok());
         });
-
-        Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let result = with_access_token(config, state, |token| async {
-                    let token = token;
-                    assert_eq!(token, "access_token".to_string());
-                    Ok(())
-                }).await;
-
-                assert!(result.is_ok());
-            });
     }
 
     #[test]
     fn with_access_token_when_token_in_state_resulting_in_unauthorized_then_do_refresh_token() {
-        let config = Arc::new(Config {
-            playlist_id: "playlist_id".to_string(),
-            client_id: "client_id".to_string(),
-            client_secret: "client_secret".to_string(),
-            refresh_token: "refresh_token".to_string(),
-        });
-
         let mut client = MockSpotifyApiClient::new();
         client.expect_refresh_token()
             .times(1)
@@ -157,37 +115,26 @@ mod test {
                 refresh_token: Some("refresh_token".to_string()),
             }));
 
-        let state = Arc::new(State {
-            client: Box::new(client),
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(Some("expired_access_token".to_string())),
-            last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(Some(vec![])),
-            playing: Mutex::new(None),
-        });
+        let state = get_state_with_token_and_client(Some("expired_access_token"), client);
 
         let tokens = Arc::new(Mutex::new(vec![]));
         let thread_tokens = Arc::clone(&tokens);
-        Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                let thread_tokens = Arc::clone(&thread_tokens);
-                let result = with_access_token(config, state, |token| async {
-                    let token = token;
-                    let mut tokens = thread_tokens.lock().unwrap();
-                    tokens.push(token.clone());
+        with_runtime(async move {
+            let thread_tokens = Arc::clone(&thread_tokens);
+            let result = with_access_token(state, |token| async {
+                let token = token;
+                let mut tokens = thread_tokens.lock().unwrap();
+                tokens.push(token.clone());
 
-                    if token == "expired_access_token".to_string() {
-                        Err(SpotifyApiError::Unauthorized)
-                    } else {
-                        Ok(())
-                    }
-                }).await;
+                if token == "expired_access_token".to_string() {
+                    Err(SpotifyApiError::Unauthorized)
+                } else {
+                    Ok(())
+                }
+            }).await;
 
-                assert!(result.is_ok());
-            });
+            assert!(result.is_ok());
+        });
 
         let tokens = tokens.lock().unwrap();
         assert_eq!(*tokens, ["expired_access_token", "fresh_access_token"]);
@@ -195,41 +142,57 @@ mod test {
 
     #[test]
     fn with_access_token_when_valid_token_in_state_and_callback_failed_then_return_error() {
-        let config = Arc::new(Config {
+        let mut client = MockSpotifyApiClient::new();
+        client.expect_refresh_token().times(0);
+
+        let state = get_state_with_token_and_client(Some("fresh_access_token"), client);
+
+        with_runtime(async move {
+            let result = with_access_token(state, |token| async {
+                let token = token;
+                assert_eq!(token.clone(), "fresh_access_token".clone());
+
+                let result: SpotifyApiResult<String> = Err(
+                    SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotConnected)))
+                );
+                result
+            }).await;
+
+            assert!(result.is_err());
+        });
+    }
+
+    fn get_state_with_token_and_client(
+        initial_access_token: Option<&'static str>,
+        mocked_client: MockSpotifyApiClient,
+    ) -> Arc<State> {
+        let (sender, _) = tokio::sync::mpsc::channel::<Out>(32);
+
+        let config = Config {
             playlist_id: "playlist_id".to_string(),
             client_id: "client_id".to_string(),
             client_secret: "client_secret".to_string(),
             refresh_token: "refresh_token".to_string(),
-        });
+        };
 
-        let mut client = MockSpotifyApiClient::new();
-        client.expect_refresh_token().times(0);
-
-        let state = Arc::new(State {
-            client: Box::new(client),
+        Arc::new(State {
+            client: Box::new(mocked_client),
             input_transformer: crate::midi::devices::default::transformer(),
             output_transformer: crate::midi::devices::default::transformer(),
-            access_token: Mutex::new(Some("fresh_access_token".to_string())),
+            access_token: Mutex::new(initial_access_token.map(|s| s.into())),
             last_action: Mutex::new(Instant::now()),
-            tracks: Mutex::new(Some(vec![])),
+            tracks: Mutex::new(None),
             playing: Mutex::new(None),
-        });
+            config,
+            sender,
+        })
+    }
 
+    fn with_runtime<F>(f: F) -> F::Output where F: Future {
         Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
-            .block_on(async move {
-                let result = with_access_token(config, state, |token| async {
-                    let token = token;
-                    assert_eq!(token.clone(), "fresh_access_token".clone());
-
-                    let result: SpotifyApiResult<String> = Err(
-                        SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotConnected)))
-                    );
-                    result
-                }).await;
-
-                assert!(result.is_err());
-            });
+            .block_on(f)
     }
 }

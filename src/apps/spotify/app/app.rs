@@ -37,6 +37,8 @@ pub struct State {
     pub last_action: Mutex<Instant>,
     pub tracks: Mutex<Option<Vec<SpotifyTrack>>>,
     pub playing: Mutex<Option<u16>>,
+    pub config: Config,
+    pub sender: Sender<Out>,
 }
 
 pub struct Spotify {
@@ -51,7 +53,9 @@ impl Spotify {
         input_transformer: &'static (dyn EventTransformer + Sync),
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
-        let config = Arc::new(config);
+        let (in_sender, in_receiver) = mpsc::channel::<In>(32);
+        let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
+
         let state = Arc::new(State {
             client,
             input_transformer,
@@ -60,11 +64,9 @@ impl Spotify {
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),
             playing: Mutex::new(None),
+            config,
+            sender: out_sender,
         });
-
-        let (in_sender, in_receiver) = mpsc::channel::<In>(32);
-        let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
-        let out_sender = Arc::new(out_sender);
 
         let runtime = Builder::new_current_thread()
             .enable_all()
@@ -73,40 +75,33 @@ impl Spotify {
 
         std::thread::spawn(move || {
             runtime.block_on(async move {
-                let poll_playlist_config = Arc::clone(&config);
                 let poll_playlist_state = Arc::clone(&state);
                 tokio::spawn(async move {
                     poll_playlist(
-                        poll_playlist_config,
                         poll_playlist_state,
                         PLAYLIST_POLLING_INTERVAL,
                         Arc::new(AtomicBool::new(false)),
                     ).await;
                 });
 
-                let poll_state_config = Arc::clone(&config);
                 let poll_state_state = Arc::clone(&state);
                 tokio::spawn(async move {
                     poll_state(
-                        poll_state_config,
                         poll_state_state,
                         Arc::new(AtomicBool::new(false)),
                     ).await;
                 });
 
                 let render_state_state = Arc::clone(&state);
-                let render_state_sender = Arc::clone(&out_sender);
                 tokio::spawn(async move {
                     render_state_reactively(
                         render_state_state,
-                        render_state_sender,
                         Arc::new(AtomicBool::new(false)),
                     ).await;
                 });
 
                 let poll_events_state = Arc::clone(&state);
-                let poll_events_sender = Arc::clone(&out_sender);
-                poll_events(poll_events_state, poll_events_sender, in_receiver, play_or_pause).await;
+                poll_events(poll_events_state, in_receiver, play_or_pause).await;
             });
         });
 
