@@ -52,7 +52,11 @@ impl Config {
             }
             spotify::app::NAME => {
                 let config = self.spotify.as_ref()?;
-                Some(Box::new(spotify::app::Spotify::new(config.clone(), input_transformer, output_transformer)))
+                Some(Box::new(spotify::app::Spotify::new(
+                    config.clone(),
+                    Box::new(spotify::client::SpotifyApiClientImpl::new()),
+                    input_transformer,
+                    output_transformer)))
             }
             youtube::app::NAME => {
                 let config = self.youtube.as_ref()?;

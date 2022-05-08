@@ -23,6 +23,8 @@ insta = "^1.10"
 warp = "^0.3"
 futures-util = "^0.3"
 toml = "^0.5"
+async-trait = "^0.1"
+mockall = "^0.11"
 
 # These features are only used for testing purposes.
 # Only turn one at a time, as portmidi will fail on macOS if initialized/dropped multiple times.
