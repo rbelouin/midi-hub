@@ -150,6 +150,7 @@ mod test {
             Config {
                 apps: Box::new(apps::Config {
                     forward: None,
+                    paint: None,
                     spotify: Some(apps::spotify::config::Config {
                         playlist_id: "playlist_id".to_string(),
                         client_id: "client_id".to_string(),

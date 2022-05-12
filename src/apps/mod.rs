@@ -9,6 +9,7 @@ pub use crate::midi::Event as MidiEvent;
 pub use crate::server::Command as ServerCommand;
 
 pub mod forward;
+pub mod paint;
 pub mod selection;
 pub mod spotify;
 pub mod youtube;
@@ -33,6 +34,7 @@ pub trait App {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub forward: Option<forward::config::Config>,
+    pub paint: Option<paint::config::Config>,
     pub spotify: Option<spotify::config::Config>,
     pub youtube: Option<youtube::config::Config>,
     pub selection: Option<selection::config::Config>,
@@ -50,6 +52,10 @@ impl Config {
                 let config = self.forward.as_ref()?;
                 Some(Box::new(forward::app::Forward::new(config.clone(), input_transformer, output_transformer)))
             }
+            paint::app::NAME => {
+                let config = self.paint.as_ref()?;
+                Some(Box::new(paint::app::Paint::new(config.clone(), input_transformer, output_transformer)))
+            },
             spotify::app::NAME => {
                 let config = self.spotify.as_ref()?;
                 Some(Box::new(spotify::app::Spotify::new(
@@ -97,6 +103,7 @@ impl Config {
 pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
     return Ok(Config {
         forward: configure_app(forward::app::NAME, forward::config::configure)?,
+        paint: configure_app(paint::app::NAME, paint::config::configure)?,
         spotify: configure_app(spotify::app::NAME, spotify::config::configure)?,
         youtube: configure_app(youtube::app::NAME, youtube::config::configure)?,
         selection: configure_app(selection::app::NAME, selection::config::configure)?,
