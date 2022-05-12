@@ -38,6 +38,25 @@ pub fn into_app_index(event: Event) ->  Result<Option<u16>, Error> {
     });
 }
 
+pub fn into_coordinates(event: Event) -> Result<Option<(u16, u16)>, Error> {
+    return Ok(match event {
+        // event must be a "note down" (144) with a strictly positive velocity
+        Event::Midi([144, data1, data2, _]) if data2 > 0 => {
+            // the device provides a 10x10 grid if you count the buttons on the sides
+            let row = data1 / 10;
+            let column  = data1 % 10;
+
+            // we’ll only return coordinates for the central 8x8 grid
+            if row >= 1 && row <= 8 && column >= 1 && column <= 8 {
+                Some(((column - 1).into(), (8 - row).into()))
+            } else {
+                None
+            }
+        },
+        _ => None,
+    });
+}
+
 pub fn from_index_to_highlight(index: u16) -> Result<Event, Error> {
     if index > 63 {
         return Err(Error::OutOfBoundIndexError);

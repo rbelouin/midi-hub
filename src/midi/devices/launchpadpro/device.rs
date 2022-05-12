@@ -50,6 +50,10 @@ impl EventTransformer for LaunchpadProEventTransformer {
         return super::index::into_app_index(event);
     }
 
+    fn into_coordinates(&self, event: Event) -> Result<Option<(u16, u16)>, Error> {
+        return super::index::into_coordinates(event);
+    }
+
     fn from_image(&self, image: Image) -> Result<Event, Error> {
         return super::image::from_image(image);
     }

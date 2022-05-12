@@ -6,15 +6,19 @@ use super::config::Config;
 pub const NAME: &'static str = "paint";
 pub const COLOR: [u8; 3] = [255, 255, 0];
 
-pub struct Paint {}
+pub struct Paint {
+    input_transformer: &'static (dyn EventTransformer + Sync),
+}
 
 impl Paint {
     pub fn new(
         _config: Config,
-        _input_transformer: &'static (dyn EventTransformer + Sync),
+        input_transformer: &'static (dyn EventTransformer + Sync),
         _output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
-        Paint {}
+        Paint {
+            input_transformer,
+        }
     }
 }
 
@@ -32,7 +36,16 @@ impl App for Paint {
     }
 
     fn send(&mut self, event: In) -> Result<(), SendError<In>> {
-        println!("[paint] received event: {:?}", event);
+        match event {
+            In::Midi(event) => {
+                match self.input_transformer.into_coordinates(event) {
+                    Ok(Some((x, y))) => println!("[paint] received coordinates: ({}, {})", x, y),
+                    Ok(_) => {}, // we ignore events that don’t map to a set of coordinates
+                    Err(e) => eprintln!("[paint] error when transforming incoming event: {}", e),
+                }
+            },
+            _ => {}, // we ignore events that are not MIDI events
+        }
         Ok(())
     }
 

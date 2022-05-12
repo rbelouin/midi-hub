@@ -171,6 +171,10 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
+            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
+                return Err(Error::Unsupported);
+            }
+
             fn from_image(&self, mut image: Image) -> Result<Event, Error> {
                 let mut prefix = Vec::from("IMG".as_bytes());
                 let mut bytes = vec![];
@@ -229,6 +233,10 @@ mod test {
             }
 
             fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
+                return Err(Error::Unsupported);
+            }
+
+            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
                 return Err(Error::Unsupported);
             }
 
@@ -296,6 +304,10 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
+            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
+                return Err(Error::Unsupported);
+            }
+
             fn from_image(&self, _image: Image) -> Result<Event, Error> {
                 return Err(Error::Unsupported);
             }
@@ -340,6 +352,10 @@ mod test {
             }
 
             fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
+                return Err(Error::Unsupported);
+            }
+
+            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
                 return Err(Error::Unsupported);
             }
 
