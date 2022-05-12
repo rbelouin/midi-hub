@@ -95,60 +95,28 @@ impl Config {
 }
 
 pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
-    let mut configure_forward = String::new();
-    let mut configure_spotify = String::new();
-    let mut configure_youtube = String::new();
-    let mut configure_selection = String::new();
-
-    println!("[apps] do you want to configure the forward application? (yes|no)");
-    std::io::stdin().read_line(&mut configure_forward)?;
-    let configure_forward = configure_forward.trim();
-    println!("");
-
-    let forward = if configure_forward == "yes" {
-        Some(forward::config::configure()?)
-    } else {
-        None
-    };
-
-    println!("[apps] do you want to configure the spotify application? (yes|no)");
-    std::io::stdin().read_line(&mut configure_spotify)?;
-    let configure_spotify = configure_spotify.trim();
-    println!("");
-
-    let spotify = if configure_spotify == "yes" {
-        Some(spotify::config::configure()?)
-    } else {
-        None
-    };
-
-    println!("[apps] do you want to configure the youtube application? (yes|no)");
-    std::io::stdin().read_line(&mut configure_youtube)?;
-    let configure_youtube = configure_youtube.trim();
-    println!("");
-
-    let youtube = if configure_youtube == "yes" {
-        Some(youtube::config::configure()?)
-    } else {
-        None
-    };
-
-    println!("[apps] do you want to configure the selection application? (yes|no)");
-    std::io::stdin().read_line(&mut configure_selection)?;
-    let configure_selection = configure_selection.trim();
-    println!("");
-
-    let selection = if configure_selection == "yes" {
-        Some(selection::config::configure()?)
-    } else {
-        None
-    };
-
     return Ok(Config {
-        forward,
-        spotify,
-        youtube,
-        selection,
+        forward: configure_app(forward::app::NAME, forward::config::configure)?,
+        spotify: configure_app(spotify::app::NAME, spotify::config::configure)?,
+        youtube: configure_app(youtube::app::NAME, youtube::config::configure)?,
+        selection: configure_app(selection::app::NAME, selection::config::configure)?,
+    });
+}
+
+fn configure_app<F, C>(name: &'static str, conf: F) -> Result<Option<C>, Box<dyn std::error::Error>> where
+    F: FnOnce() -> Result<C, Box<dyn std::error::Error>>
+{
+    let mut configure = String::new();
+
+    println!("[apps] do you want to configure the {} application? (yes|no)", name);
+    std::io::stdin().read_line(&mut configure)?;
+    let configure = configure.trim();
+    println!("");
+
+    return Ok(if configure == "yes" {
+        Some(conf()?)
+    } else {
+        None
     });
 }
 
