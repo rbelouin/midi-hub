@@ -7,6 +7,10 @@ pub fn transformer() -> &'static DefaultEventTransformer {
 const DEFAULT_EVENT_TRANSFORMER: DefaultEventTransformer = DefaultEventTransformer {};
 pub struct DefaultEventTransformer {}
 impl EventTransformer for DefaultEventTransformer {
+    fn get_grid_size(&self) -> Result<(usize, usize), Error> {
+        return Err(Error::Unsupported);
+    }
+
     fn into_index(&self, event: Event) -> Result<Option<u16>, Error> {
          return match event {
             // filter "note down" events, for notes higher than C2 (36), and with strictly positive velocity

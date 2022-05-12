@@ -127,6 +127,7 @@ mod test {
 
     struct Transformer {}
     impl EventTransformer for Transformer {
+        fn get_grid_size(&self) -> Result<(usize, usize), Error> { Err(Error::Unsupported) }
         fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> { Err(Error::Unsupported) }

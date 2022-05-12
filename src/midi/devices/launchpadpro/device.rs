@@ -42,6 +42,10 @@ impl LaunchpadProEventTransformer {
 }
 
 impl EventTransformer for LaunchpadProEventTransformer {
+    fn get_grid_size(&self) -> Result<(usize, usize), Error> {
+        return Ok((8, 8));
+    }
+
     fn into_index(&self, event: Event) -> Result<Option<u16>, Error> {
         return super::index::into_index(event);
     }

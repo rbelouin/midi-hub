@@ -13,6 +13,10 @@ pub enum Event {
 }
 
 pub trait EventTransformer {
+    /// Device that can expose the size of its orthogonal grid,
+    /// as it should typically be the case for pads controllers.
+    fn get_grid_size(&self) -> Result<(usize, usize), Error>;
+
     /// Device that can associate a MIDI event to an unsigned integer,
     /// that can be used to access elements of an indexed collections.
     fn into_index(&self, event: Event) -> Result<Option<u16>, Error>;

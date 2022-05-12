@@ -12,6 +12,7 @@ pub struct Paint {
     output_transformer: &'static (dyn EventTransformer + Sync),
     sender: Sender<Out>,
     receiver: Receiver<Out>,
+    image: Image,
 }
 
 impl Paint {
@@ -21,27 +22,36 @@ impl Paint {
         output_transformer: &'static (dyn EventTransformer + Sync),
     ) -> Self {
         let (sender, receiver) = channel::<Out>(32);
+        let (width, height) = input_transformer.get_grid_size().unwrap_or_else(|err| {
+            eprintln!("[paint] falling back to a zero-pixel image, as the input device’s grid size cannot be retrieved: {}", err);
+            (0, 0)
+        });
+
+        let image = Image { width, height, bytes: vec![0; 64*3] };
+
         Paint {
             input_transformer,
             output_transformer,
             sender,
             receiver,
+            image,
         }
     }
 
-    fn render_yellow_pixel(&self, x: u16, y: u16) {
-        // Creating a 8x8 image, because the app will only work on a Launchpad Pro for now
-        if x < 8 && y < 8 {
-            let mut image = Image { width: 8, height: 8, bytes: vec![0; 64*3] };
-            let byte_pos = (y * 3 * 8 + x * 3) as usize;
-            let pixel = &mut image.bytes[byte_pos..(byte_pos + 3)];
+    fn render_yellow_pixel(&mut self, x: u16, y: u16) {
+        let x = x as usize;
+        let y = y as usize;
+
+        if x < self.image.width && y < self.image.height {
+            let byte_pos = y * 3 * 8 + x * 3;
+            let pixel = &mut self.image.bytes[byte_pos..(byte_pos + 3)];
 
             // Set the pixel yellow!
             pixel[0] = 255;
             pixel[1] = 255;
             pixel[2] = 0;
 
-            match self.output_transformer.from_image(image) {
+            match self.output_transformer.from_image(self.image.clone()) {
                 Ok(event) => self.sender.blocking_send(event.into()).unwrap_or_else(|err| {
                     eprintln!("[paint] could not send event back to the router: {}", err)
                 }),
