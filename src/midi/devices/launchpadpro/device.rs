@@ -54,6 +54,10 @@ impl EventTransformer for LaunchpadProEventTransformer {
         return super::index::into_app_index(event);
     }
 
+    fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
+        return super::index::into_color_palette_index(event);
+    }
+
     fn into_coordinates(&self, event: Event) -> Result<Option<(u16, u16)>, Error> {
         return super::index::into_coordinates(event);
     }
@@ -68,5 +72,9 @@ impl EventTransformer for LaunchpadProEventTransformer {
 
     fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
         return super::index::from_app_colors(app_colors);
+    }
+
+    fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
+        return super::index::from_color_palette(color_palette);
     }
 }

@@ -38,6 +38,25 @@ pub fn into_app_index(event: Event) ->  Result<Option<u16>, Error> {
     });
 }
 
+pub fn into_color_palette_index(event: Event) ->  Result<Option<u16>, Error> {
+    return Ok(match event {
+        // event must be a "note down" with a strictly positive velocity
+        Event::Midi([176, data1, data2, _]) if data2 > 0 => {
+            // the device provides a 10x10 grid if you count the buttons on the sides
+            let row = data1 / 10;
+            let column  = data1 % 10;
+
+            // we’ll use the bottom row to select colors
+            if row == 0 && column >= 1 && column <= 8 {
+                Some(column - 1).map(|index| index.into())
+            } else {
+                None
+            }
+        },
+        _ => None,
+    });
+}
+
 pub fn into_coordinates(event: Event) -> Result<Option<(u16, u16)>, Error> {
     return Ok(match event {
         // event must be a "note down" (144) with a strictly positive velocity
@@ -85,6 +104,27 @@ pub fn from_app_colors(app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
             app_colors[index][0] / 4,
             app_colors[index][1] / 4,
             app_colors[index][2] / 4,
+        ]);
+    }
+    bytes.push(247);
+
+    return Ok(Event::SysEx(bytes));
+}
+
+pub fn from_color_palette(color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
+    if color_palette.len() > 8 {
+        return Err(Error::OutOfBoundIndexError);
+    }
+
+    let mut bytes = vec![240, 0, 32, 41, 2, 16, 11];
+
+    for index in 0..color_palette.len() {
+        let led = (index + 1) as u8;
+        bytes.append(&mut vec![
+            led,
+            color_palette[index][0] / 4,
+            color_palette[index][1] / 4,
+            color_palette[index][2] / 4,
         ]);
     }
     bytes.push(247);
