@@ -137,4 +137,8 @@ impl App for Paint {
     fn receive(&mut self) -> Result<Out, TryRecvError> {
         return self.receiver.try_recv();
     }
+
+    fn on_select(&mut self) {
+        self.render_color_palette();
+    }
 }

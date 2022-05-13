@@ -142,4 +142,6 @@ impl App for Spotify {
     fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
     }
+
+    fn on_select(&mut self) {}
 }

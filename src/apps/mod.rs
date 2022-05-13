@@ -29,6 +29,9 @@ pub trait App {
 
     /// Poll events emitted by the application
     fn receive(&mut self) -> Result<Out, TryRecvError>;
+
+    /// Lifecycle callback that gets called every time the app gets the focus
+    fn on_select(&mut self);
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -68,30 +68,37 @@ impl App for Selection {
             In::Midi(event) => {
                 let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
                     .and_then(|app_index| {
-                        let selected_app = self.apps.get(app_index as usize);
+                        let selected_app = self.apps.get_mut(app_index as usize);
                         if selected_app.is_some() {
                             self.selected_app = app_index as usize;
                         }
                         return selected_app;
                     });
 
-                match selected_app {
-                    Some(selected_app) => {
+                selected_app
+                    .map(|selected_app| {
                         println!("[selection] selecting {}", selected_app.get_name());
+                        self.output_transformer.from_color_palette(vec![[0, 0, 0]; 8])
+                            .map_err(|err| format!("[selection] could not transform color palette: {}", err))
+                            .and_then(|event| self.out_sender.blocking_send(event.into())
+                                .map_err(|err| format!("[selection] could not clean the color palette: {}", err)))
+                            .unwrap_or_else(|err| eprintln!("{}", err));
+
                         self.output_transformer.from_image(selected_app.get_logo())
                             .map_err(|err| format!("[selection] could not transform the image: {}", err))
                             .and_then(|event| self.out_sender.blocking_send(event.into())
                                 .map_err(|err| format!("[selection] could not send the image: {}", err)))
                             .unwrap_or_else(|err| eprintln!("{}", err));
-                    },
-                    _ => {
+
+                        selected_app.on_select();
+                    })
+                    .unwrap_or_else(|| {
                         match self.apps.get_mut(self.selected_app) {
                             Some(app) => app.send(event.into())
                                 .unwrap_or_else(|err| eprintln!("[selection][{}] could not send event: {}", app.get_name(), err)),
                             None => eprintln!("No app found for index: {}", self.selected_app),
                         }
-                    },
-                }
+                    });
                 Ok(())
             },
             In::Server(command)  => {
@@ -117,6 +124,8 @@ impl App for Selection {
             return Err(TryRecvError::Disconnected);
         }
     }
+
+    fn on_select(&mut self) {}
 }
 
 #[cfg(test)]

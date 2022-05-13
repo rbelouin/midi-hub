@@ -55,6 +55,8 @@ impl App for Forward {
             _ => Err(mpsc::error::TryRecvError::Empty),
         });
     }
+
+    fn on_select(&mut self) {}
 }
 
 pub fn get_logo() -> Image {

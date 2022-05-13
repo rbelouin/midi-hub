@@ -103,6 +103,8 @@ impl App for Youtube {
     fn receive(&mut self) -> Result<Out, mpsc::error::TryRecvError> {
         return self.out_receiver.try_recv();
     }
+
+    fn on_select(&mut self) {}
 }
 
 async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) -> Result<(), ()> {
