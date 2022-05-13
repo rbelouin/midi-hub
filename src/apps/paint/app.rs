@@ -108,7 +108,7 @@ impl App for Paint {
     }
 
     fn get_logo(&self) -> Image {
-        return Image { width: 0, height: 0, bytes: vec![] };
+        return self.image.clone();
     }
 
     fn send(&mut self, event: In) -> Result<(), SendError<In>> {
