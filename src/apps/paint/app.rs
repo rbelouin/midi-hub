@@ -234,7 +234,6 @@ mod test {
     }
     impl EventTransformer for FakeEventTransformer {
         fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
-        fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
             Ok(match event {
                 Event::Midi([176, index, _, _]) => Some(index as u16),
@@ -247,7 +246,6 @@ mod test {
             return Ok(Event::SysEx(bytes));
         }
         fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
-        fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> { Err(Error::Unsupported) }
         fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
             let mut bytes = Vec::from("palette".as_bytes());
             for color in color_palette {

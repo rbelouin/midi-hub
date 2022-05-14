@@ -167,10 +167,6 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -185,10 +181,6 @@ mod test {
 
             fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
-            }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
             }
 
             fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
@@ -236,10 +228,6 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -254,10 +242,6 @@ mod test {
 
             fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
-            }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
             }
 
             fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
@@ -308,10 +292,6 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -322,10 +302,6 @@ mod test {
 
             fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
-            }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
             }
 
             fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
@@ -363,10 +339,6 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -376,10 +348,6 @@ mod test {
             }
 
             fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
                 return Err(Error::Unsupported);
             }
 

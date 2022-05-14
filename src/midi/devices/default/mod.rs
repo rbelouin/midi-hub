@@ -17,16 +17,6 @@ impl EventTransformer for DefaultEventTransformer {
         };
     }
 
-    fn into_app_index(&self, event: Event) -> Result<Option<u16>, Error> {
-         return match event {
-            // filter "note down" events, for notes lower than C0 (12), and with strictly positive velocity
-            Event::Midi([144, data1, data2, _]) if data1 < 12 && data2 > 0 => {
-                Ok(Some(data1.into()))
-            },
-            _ => Ok(None),
-        };
-    }
-
     fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
         return Err(Error::Unsupported);
     }
@@ -36,10 +26,6 @@ impl EventTransformer for DefaultEventTransformer {
     }
 
     fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> {
-        return Err(Error::Unsupported);
-    }
-
-    fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
         return Err(Error::Unsupported);
     }
 

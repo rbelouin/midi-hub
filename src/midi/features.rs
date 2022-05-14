@@ -23,6 +23,35 @@ impl From<&'static str> for UnsupportedFeatureError {
     }
 }
 
+/// An app selector is a device that provides a UI to switch between different midi-hub apps.
+pub trait AppSelector {
+    /// Convert a MIDI event into an index, triggering the selection of the corresponding app.
+    fn into_app_index(&self, event: Event) -> R<Option<usize>>;
+
+    /// If the device supports it, it will be passed a vector of colors,
+    /// to light the "app-selection" UI elements with their corresponding color.
+    fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> R<Event>;
+}
+
+impl<T> AppSelector for T {
+    /// This default implementation uses note-down events for notes from the C-1/B-1 octave.
+    default fn into_app_index(&self, event: Event) -> R<Option<usize>> {
+        match event {
+            // 144: note-down
+            // data1 < 12: corresponds to the C-1/B-1 octave
+            // data2 > 0: corresponds to the velocity (the key really needs to be pressed)
+            Event::Midi([144, data1, data2, _]) if data1 < 12 && data2 > 0 => {
+                Ok(Some(data1.into()))
+            },
+            _ => Ok(None),
+        }
+    }
+
+    default fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> R<Event> {
+        Err(Box::new(UnsupportedFeatureError::from("app-selector:from_app_colors")))
+    }
+}
+
 /// A grid controller is typically a MIDI device with pads arranged on a grid layout.
 /// It _must_ be able to expose its size and transform MIDI events into coordinates.
 pub trait GridController {
