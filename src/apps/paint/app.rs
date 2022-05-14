@@ -39,9 +39,9 @@ impl Paint {
             (0, 0)
         });
 
-        let image = Image { width, height, bytes: vec![0; 64*3] };
+        let image = Image { width, height, bytes: vec![0; width * height * 3] };
 
-        let paint = Paint {
+        return Paint {
             input_transformer,
             output_transformer,
             sender,
@@ -49,9 +49,6 @@ impl Paint {
             image,
             color: COLOR_PALETTE[0],
         };
-
-        paint.render_color_palette();
-        return paint;
     }
 
     fn render_color_palette(&self) {
@@ -140,5 +137,120 @@ impl App for Paint {
 
     fn on_select(&mut self) {
         self.render_color_palette();
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::image::Image;
+    use crate::midi::{Event, Error};
+    use super::*;
+
+    #[test]
+    fn on_select_when_app_starts_then_render_color_palette() {
+        let mut paint = get_paint();
+        paint.on_select();
+
+        // We expect to receive:
+        // 1. the "palette" prefix, from the fake event transformer implementation
+        // 2. 3 bytes for each pixel of the color palette
+        let event = paint.receive().unwrap();
+        assert_eq!(event, Out::Midi(Event::SysEx(vec![
+            b'p', b'a', b'l', b'e', b't', b't', b'e',
+            000, 000, 000,
+            000, 000, 255,
+            000, 255, 000,
+            000, 255, 255,
+            255, 000, 000,
+            255, 000, 255,
+            255, 255, 000,
+            255, 255, 255,
+        ])));
+
+        // We don’t expect any additional event
+        let event = paint.receive();
+        assert!(event.is_err());
+    }
+
+    #[test]
+    fn get_logo_when_app_starts_then_return_a_black_image_of_the_size_of_the_grid() {
+        let paint = get_paint();
+        let image = paint.get_logo();
+        assert_eq!(image, Image {
+            width: 2,
+            height: 2,
+            bytes: vec![
+                // 3 bytes per pixel, 2 pixels on top and 2 at the bottom = 12 bytes
+                0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0,
+            ],
+        });
+    }
+
+    #[test]
+    fn when_user_selects_color_and_presses_one_pixel_then_draw_the_pixel_on_the_image() {
+        let mut paint = get_paint();
+
+        // select cyan (as per our fake implementation of event transformer)
+        paint.send(In::Midi(Event::Midi([176, 3, 0, 0]))).unwrap();
+
+        // press (1, 0) (as per our fake implementation of event transformer)
+        paint.send(In::Midi(Event::Midi([144, 1, 0, 0]))).unwrap();
+
+        // We expect to receive:
+        // 1. the "image" prefix, written by our fake event transformer
+        // 2. black pixels, except for the top-right one (1, 0)
+        let event = paint.receive().unwrap();
+        assert_eq!(event, Out::Midi(Event::SysEx(vec![
+            b'i', b'm', b'a', b'g', b'e',
+            000, 000, 000, 000, 255, 255,
+            000, 000, 000, 000, 000, 000,
+        ])));
+
+        // We don’t expect any additional event
+        let event = paint.receive();
+        assert!(event.is_err());
+    }
+
+    fn get_paint() -> Paint {
+        return Paint::new(
+            Config {},
+            &FAKE_EVENT_TRANSFORMER,
+            &FAKE_EVENT_TRANSFORMER,
+        );
+    }
+
+    const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
+    struct FakeEventTransformer {}
+    impl EventTransformer for FakeEventTransformer {
+        fn get_grid_size(&self) -> Result<(usize, usize), Error> { Ok((2, 2)) }
+        fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
+        fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
+        fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
+            Ok(match event {
+                Event::Midi([176, index, _, _]) => Some(index as u16),
+                _ => None,
+            })
+        }
+        fn into_coordinates(&self, event: Event) -> Result<Option<(u16, u16)>, Error> {
+            Ok(match event {
+                Event::Midi([144, x, y, _]) => Some((x as u16, y as u16)),
+                _ => None,
+            })
+        }
+        fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+            let mut bytes = Vec::from("image".as_bytes());
+            bytes.append(&mut image.bytes);
+            return Ok(Event::SysEx(bytes));
+        }
+        fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
+        fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> { Err(Error::Unsupported) }
+        fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
+            let mut bytes = Vec::from("palette".as_bytes());
+            for color in color_palette {
+                bytes.append(&mut color.into());
+            }
+            return Ok(Event::SysEx(bytes));
+        }
     }
 }
