@@ -68,30 +68,37 @@ impl App for Selection {
             In::Midi(event) => {
                 let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
                     .and_then(|app_index| {
-                        let selected_app = self.apps.get(app_index as usize);
+                        let selected_app = self.apps.get_mut(app_index as usize);
                         if selected_app.is_some() {
                             self.selected_app = app_index as usize;
                         }
                         return selected_app;
                     });
 
-                match selected_app {
-                    Some(selected_app) => {
+                selected_app
+                    .map(|selected_app| {
                         println!("[selection] selecting {}", selected_app.get_name());
+                        self.output_transformer.from_color_palette(vec![[0, 0, 0]; 8])
+                            .map_err(|err| format!("[selection] could not transform color palette: {}", err))
+                            .and_then(|event| self.out_sender.blocking_send(event.into())
+                                .map_err(|err| format!("[selection] could not clean the color palette: {}", err)))
+                            .unwrap_or_else(|err| eprintln!("{}", err));
+
                         self.output_transformer.from_image(selected_app.get_logo())
                             .map_err(|err| format!("[selection] could not transform the image: {}", err))
                             .and_then(|event| self.out_sender.blocking_send(event.into())
                                 .map_err(|err| format!("[selection] could not send the image: {}", err)))
                             .unwrap_or_else(|err| eprintln!("{}", err));
-                    },
-                    _ => {
+
+                        selected_app.on_select();
+                    })
+                    .unwrap_or_else(|| {
                         match self.apps.get_mut(self.selected_app) {
                             Some(app) => app.send(event.into())
                                 .unwrap_or_else(|err| eprintln!("[selection][{}] could not send event: {}", app.get_name(), err)),
                             None => eprintln!("No app found for index: {}", self.selected_app),
                         }
-                    },
-                }
+                    });
                 Ok(())
             },
             In::Server(command)  => {
@@ -117,6 +124,8 @@ impl App for Selection {
             return Err(TryRecvError::Disconnected);
         }
     }
+
+    fn on_select(&mut self) {}
 }
 
 #[cfg(test)]
@@ -127,8 +136,11 @@ mod test {
 
     struct Transformer {}
     impl EventTransformer for Transformer {
+        fn get_grid_size(&self) -> Result<(usize, usize), Error> { Err(Error::Unsupported) }
         fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
+        fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
+        fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> { Err(Error::Unsupported) }
         fn from_image(&self, _image: Image) -> Result<Event, Error> { Err(Error::Unsupported) }
         fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
         fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
@@ -140,6 +152,7 @@ mod test {
             }
             return Ok(Event::SysEx(bytes));
         }
+        fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> { Err(Error::Unsupported) }
     }
 
     const TRANSFORMER: Transformer = Transformer {};
@@ -150,6 +163,7 @@ mod test {
             Config {
                 apps: Box::new(apps::Config {
                     forward: None,
+                    paint: None,
                     spotify: Some(apps::spotify::config::Config {
                         playlist_id: "playlist_id".to_string(),
                         client_id: "client_id".to_string(),

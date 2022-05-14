@@ -13,6 +13,10 @@ pub enum Event {
 }
 
 pub trait EventTransformer {
+    /// Device that can expose the size of its orthogonal grid,
+    /// as it should typically be the case for pads controllers.
+    fn get_grid_size(&self) -> Result<(usize, usize), Error>;
+
     /// Device that can associate a MIDI event to an unsigned integer,
     /// that can be used to access elements of an indexed collections.
     fn into_index(&self, event: Event) -> Result<Option<u16>, Error>;
@@ -20,6 +24,14 @@ pub trait EventTransformer {
     /// Device that can associate a MIDI event to an unsigned integer,
     /// that can be used to select a midi-hub application.
     fn into_app_index(&self, event: Event) -> Result<Option<u16>, Error>;
+
+    /// Device that can associate a MIDI event to a color from a palette,
+    /// let’s be realistic, this only be used by the paint application.
+    fn into_color_palette_index(&self, event: Event) ->  Result<Option<u16>, Error>;
+
+    /// Device that can associate a MIDI event to a pair of coordinates,
+    /// this method can be used to select the pixel of an image; (0, 0) being the top-left corner.
+    fn into_coordinates(&self, event: Event) -> Result<Option<(u16, u16)>, Error>;
 
     /// Device that can render an image.
     fn from_image(&self, image: Image) -> Result<Event, Error>;
@@ -30,6 +42,9 @@ pub trait EventTransformer {
 
     /// Device that can highlight the app selection elements with the corresponding colors.
     fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> Result<Event, Error>;
+
+    /// Device that can highlight buttons that can be pressed to select colors
+    fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> Result<Event, Error>;
 }
 
 /// MIDI Device that is able to emit MIDI events
