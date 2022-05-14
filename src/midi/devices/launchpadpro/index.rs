@@ -303,4 +303,39 @@ mod tests {
 
         assert_eq!(expected_output, actual_output);
     }
+// 2. values are divided by 4
+
+    #[test]
+    fn from_color_palette_when_too_many_colors_then_return_out_of_bound_error() {
+        // a color palette of nine items should not be supported (even if they’re all black)
+        let color_palette = vec![[0, 0, 0]; 9];
+        let actual_event = from_color_palette(color_palette);
+        assert_eq!(actual_event, Err(Error::OutOfBoundIndexError));
+    }
+
+    #[test]
+    fn from_color_palette_when_valid_palette_then_divide_all_values_by_four() {
+        let color_palette = vec![
+            [12, 24, 48],
+            [96, 16, 36],
+            [8, 192, 56],
+        ];
+
+        let actual_event = from_color_palette(color_palette).unwrap();
+        assert_eq!(actual_event, Event::SysEx(vec![
+                // Prefix for "bluk lighting" a set of LEDs
+                240, 0, 32, 41, 2, 16, 11,
+                // Identifier for the first LED
+                1,
+                // The Launchpad Pro only accepts 3-byte colors,
+                // where each byte has a value within the [0; 63] range.
+                3, 6, 12,
+                // Identifier and color for the second LED
+                2, 24, 4, 9,
+                // Identifier and color for the third LED
+                3, 2, 48, 14,
+                // Suffix for LaunchpadPro SysEx commands
+                247,
+        ]));
+    }
 }
