@@ -163,10 +163,6 @@ mod test {
 
         struct FakeEventTransformer {}
         impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -176,10 +172,6 @@ mod test {
             }
 
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
                 return Err(Error::Unsupported);
             }
 
@@ -240,10 +232,6 @@ mod test {
 
         struct FakeEventTransformer {}
         impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -253,10 +241,6 @@ mod test {
             }
 
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
                 return Err(Error::Unsupported);
             }
 
@@ -320,10 +304,6 @@ mod test {
 
         struct FakeEventTransformer {}
         impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -333,10 +313,6 @@ mod test {
             }
 
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
                 return Err(Error::Unsupported);
             }
 
@@ -383,10 +359,6 @@ mod test {
 
         struct FakeEventTransformer {}
         impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
                 return Err(Error::Unsupported);
             }
@@ -396,10 +368,6 @@ mod test {
             }
 
             fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
                 return Err(Error::Unsupported);
             }
 

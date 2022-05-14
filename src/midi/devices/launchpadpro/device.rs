@@ -42,10 +42,6 @@ impl LaunchpadProEventTransformer {
 }
 
 impl EventTransformer for LaunchpadProEventTransformer {
-    fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-        return Ok((8, 8));
-    }
-
     fn into_index(&self, event: Event) -> Result<Option<u16>, Error> {
         return super::index::into_index(event);
     }
@@ -56,10 +52,6 @@ impl EventTransformer for LaunchpadProEventTransformer {
 
     fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
         return super::index::into_color_palette_index(event);
-    }
-
-    fn into_coordinates(&self, event: Event) -> Result<Option<(u16, u16)>, Error> {
-        return super::index::into_coordinates(event);
     }
 
     fn from_image(&self, image: Image) -> Result<Event, Error> {

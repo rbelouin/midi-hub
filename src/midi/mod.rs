@@ -3,6 +3,7 @@ mod device;
 mod error;
 
 pub mod devices;
+pub mod features;
 
 pub use connections::*;
 pub use device::*;

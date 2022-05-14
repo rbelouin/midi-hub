@@ -1,5 +1,6 @@
 mod device;
 
+mod grid_controller;
 mod image;
 mod index;
 

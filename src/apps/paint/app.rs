@@ -60,10 +60,7 @@ impl Paint {
         }
     }
 
-    fn render_pixel(&mut self, x: u16, y: u16) {
-        let x = x as usize;
-        let y = y as usize;
-
+    fn render_pixel(&mut self, x: usize, y: usize) {
         if x < self.image.width && y < self.image.height {
             let byte_pos = y * 3 * 8 + x * 3;
             let pixel = &mut self.image.bytes[byte_pos..(byte_pos + 3)];
@@ -144,6 +141,7 @@ impl App for Paint {
 mod test {
     use crate::image::Image;
     use crate::midi::{Event, Error};
+    use crate::midi::features::{R, GridController};
     use super::*;
 
     #[test]
@@ -222,19 +220,24 @@ mod test {
 
     const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
     struct FakeEventTransformer {}
+    impl GridController for FakeEventTransformer {
+        fn get_grid_size(&self) -> R<(usize, usize)> {
+            Ok((2, 2))
+        }
+
+        fn into_coordinates(&self, event: Event) -> R<Option<(usize, usize)>> {
+            Ok(match event {
+                Event::Midi([144, x, y, _]) => Some((x as usize, y as usize)),
+                _ => None,
+            })
+        }
+    }
     impl EventTransformer for FakeEventTransformer {
-        fn get_grid_size(&self) -> Result<(usize, usize), Error> { Ok((2, 2)) }
         fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
             Ok(match event {
                 Event::Midi([176, index, _, _]) => Some(index as u16),
-                _ => None,
-            })
-        }
-        fn into_coordinates(&self, event: Event) -> Result<Option<(u16, u16)>, Error> {
-            Ok(match event {
-                Event::Midi([144, x, y, _]) => Some((x as u16, y as u16)),
                 _ => None,
             })
         }

@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,3 +29,5 @@ impl fmt::Display for Error {
         }
     }
 }
+
+impl StdError for Error {}
