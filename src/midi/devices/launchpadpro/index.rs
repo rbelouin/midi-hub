@@ -253,4 +253,54 @@ mod tests {
 
         assert_eq!(expected_output, actual_output);
     }
+
+    #[test]
+    fn into_color_palette_index_given_incorrect_status_should_return_none() {
+        let event = Event::Midi([128, 3, 10, 0]);
+        assert_eq!(None, into_color_palette_index(event).expect("into_color_palette_index should not fail"));
+    }
+
+    #[test]
+    fn into_color_palette_index_given_low_velocity_should_return_none() {
+        let event = Event::Midi([176, 3, 0, 0]);
+        assert_eq!(None, into_color_palette_index(event).expect("into_color_palette_index should not fail"));
+    }
+
+    #[test]
+    fn into_color_palette_index_given_out_of_grid_value_should_return_none() {
+        let events = vec![
+            [176, 00, 10, 0],
+            [176, 09, 10, 0],
+            [176, 10, 10, 0],
+            [176, 11, 10, 0],
+            [176, 12, 10, 0],
+            [176, 13, 10, 0],
+            [176, 14, 10, 0],
+            [176, 15, 10, 0],
+            [176, 16, 10, 0],
+            [176, 17, 10, 0],
+            [176, 18, 10, 0],
+            [176, 19, 10, 0],
+        ];
+
+        for event in events {
+            let event = Event::Midi(event);
+            assert_eq!(None, into_color_palette_index(event).expect("into_color_palette_index should not fail"));
+        }
+    }
+
+    #[test]
+    fn into_color_palette_index_should_correct_value() {
+        let actual_output = vec![1, 2, 3, 4, 5, 6, 7, 8]
+            .iter()
+            .map(|code| into_color_palette_index(Event::Midi([176, *code, 10, 0])).expect("into_color_palette_index should not fail"))
+            .collect::<Vec<Option<u16>>>();
+
+        let expected_output = vec![0, 1, 2, 3, 4, 5, 6, 7]
+            .iter()
+            .map(|index| Some(*index))
+            .collect::<Vec<Option<u16>>>();
+
+        assert_eq!(expected_output, actual_output);
+    }
 }
