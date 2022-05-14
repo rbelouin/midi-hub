@@ -205,6 +205,74 @@ mod tests {
     }
 
     #[test]
+    fn into_coordinates_given_incorrect_status_should_return_none() {
+        let event = Event::Midi([128, 53, 10, 0]);
+        assert_eq!(None, into_coordinates(event).expect("into_coordinates should not fail"));
+    }
+
+    #[test]
+    fn into_coordinates_given_low_velocity_should_return_none() {
+        let event = Event::Midi([144, 53, 0, 0]);
+        assert_eq!(None, into_coordinates(event).expect("into_coordinates should not fail"));
+    }
+
+    #[test]
+    fn into_coordinates_given_out_of_grid_value_should_return_none() {
+        let events = vec![
+            [144, 00, 10, 0],
+            [144, 01, 10, 0],
+            [144, 08, 10, 0],
+            [144, 08, 10, 0],
+            [144, 10, 10, 0],
+            [144, 19, 10, 0],
+            [144, 80, 10, 0],
+            [144, 89, 10, 0],
+            [144, 90, 10, 0],
+            [144, 91, 10, 0],
+            [144, 98, 10, 0],
+            [144, 99, 10, 0],
+        ];
+
+        for event in events {
+            let event = Event::Midi(event);
+            assert_eq!(None, into_coordinates(event).expect("into_coordinates should not fail"));
+        }
+    }
+
+    #[test]
+    fn into_coordinates_should_correct_value() {
+        let actual_output = vec![
+            81, 82, 83, 84, 85, 86, 87, 88,
+            71, 72, 73, 74, 75, 76, 77, 78,
+            61, 62, 63, 64, 65, 66, 67, 68,
+            51, 52, 53, 54, 55, 56, 57, 58,
+            41, 42, 43, 44, 45, 46, 47, 48,
+            31, 32, 33, 34, 35, 36, 37, 38,
+            21, 22, 23, 24, 25, 26, 27, 28,
+            11, 12, 13, 14, 15, 16, 17, 18,
+        ]
+            .iter()
+            .map(|code| into_coordinates(Event::Midi([144, *code, 10, 0])).expect("into_coordinates should not fail"))
+            .collect::<Vec<Option<(u16, u16)>>>();
+
+        let expected_output = vec![
+            (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0),
+            (0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1),
+            (0, 2), (1, 2), (2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 2),
+            (0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3), (6, 3), (7, 3),
+            (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4), (6, 4), (7, 4),
+            (0, 5), (1, 5), (2, 5), (3, 5), (4, 5), (5, 5), (6, 5), (7, 5),
+            (0, 6), (1, 6), (2, 6), (3, 6), (4, 6), (5, 6), (6, 6), (7, 6),
+            (0, 7), (1, 7), (2, 7), (3, 7), (4, 7), (5, 7), (6, 7), (7, 7),
+        ]
+            .iter()
+            .map(|index| Some(*index))
+            .collect::<Vec<Option<(u16, u16)>>>();
+
+        assert_eq!(expected_output, actual_output);
+    }
+
+    #[test]
     fn into_app_index_given_incorrect_status_should_return_none() {
         let event = Event::Midi([128, 89, 10, 0]);
         assert_eq!(None, into_app_index(event).expect("into_app_index should not fail"));
