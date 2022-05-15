@@ -17,19 +17,11 @@ impl EventTransformer for DefaultEventTransformer {
         };
     }
 
-    fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-        return Err(Error::Unsupported);
-    }
-
     fn from_image(&self, _image: Image) -> Result<Event, Error> {
         return Err(Error::Unsupported);
     }
 
     fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> {
-        return Err(Error::Unsupported);
-    }
-
-    fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
         return Err(Error::Unsupported);
     }
 }

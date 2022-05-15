@@ -81,8 +81,7 @@ impl Paint {
         }
     }
 
-    fn select_color(&mut self, index: u16) {
-        let index = index as usize;
+    fn select_color(&mut self, index: usize) {
         if index < COLOR_PALETTE.len() {
             self.color = COLOR_PALETTE[index];
             println!("[paint] selected color: {:?}", self.color);
@@ -141,7 +140,7 @@ impl App for Paint {
 mod test {
     use crate::image::Image;
     use crate::midi::{Event, Error};
-    use crate::midi::features::{R, GridController};
+    use crate::midi::features::{R, ColorPalette, GridController};
     use super::*;
 
     #[test]
@@ -232,26 +231,29 @@ mod test {
             })
         }
     }
-    impl EventTransformer for FakeEventTransformer {
-        fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
-        fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
+    impl ColorPalette for FakeEventTransformer {
+        fn into_color_palette_index(&self, event: Event) -> R<Option<usize>> {
             Ok(match event {
-                Event::Midi([176, index, _, _]) => Some(index as u16),
+                Event::Midi([176, index, _, _]) => Some(index.into()),
                 _ => None,
             })
         }
-        fn from_image(&self, mut image: Image) -> Result<Event, Error> {
-            let mut bytes = Vec::from("image".as_bytes());
-            bytes.append(&mut image.bytes);
-            return Ok(Event::SysEx(bytes));
-        }
-        fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
-        fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
+
+        fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> R<Event> {
             let mut bytes = Vec::from("palette".as_bytes());
             for color in color_palette {
                 bytes.append(&mut color.into());
             }
             return Ok(Event::SysEx(bytes));
         }
+    }
+    impl EventTransformer for FakeEventTransformer {
+        fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
+        fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+            let mut bytes = Vec::from("image".as_bytes());
+            bytes.append(&mut image.bytes);
+            return Ok(Event::SysEx(bytes));
+        }
+        fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
     }
 }

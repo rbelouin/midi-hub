@@ -1,6 +1,7 @@
 mod device;
 
 mod app_selector;
+mod color_palette;
 mod grid_controller;
 mod image;
 mod index;

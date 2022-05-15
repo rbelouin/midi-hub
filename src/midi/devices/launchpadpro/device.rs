@@ -46,19 +46,11 @@ impl EventTransformer for LaunchpadProEventTransformer {
         return super::index::into_index(event);
     }
 
-    fn into_color_palette_index(&self, event: Event) -> Result<Option<u16>, Error> {
-        return super::index::into_color_palette_index(event);
-    }
-
     fn from_image(&self, image: Image) -> Result<Event, Error> {
         return super::image::from_image(image);
     }
 
     fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
         return super::index::from_index_to_highlight(index);
-    }
-
-    fn from_color_palette(&self, color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
-        return super::index::from_color_palette(color_palette);
     }
 }

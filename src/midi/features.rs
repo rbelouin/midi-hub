@@ -52,6 +52,27 @@ impl<T> AppSelector for T {
     }
 }
 
+/// A color palette is a device that provides a UI to select a color from a palette.
+pub trait ColorPalette {
+    /// Convert a MIDI event into a color index,
+    /// triggering the selection of the corresponding color.
+    fn into_color_palette_index(&self, event: Event) -> R<Option<usize>>;
+
+    /// If the device supports it, it will be passed a vector of colors,
+    /// to light the "color-palette" UI elements with their corresponding color.
+    fn from_color_palette(&self, app_colors: Vec<[u8; 3]>) -> R<Event>;
+}
+
+impl<T> ColorPalette for T {
+    default fn into_color_palette_index(&self, _event: Event) -> R<Option<usize>> {
+        Err(Box::new(UnsupportedFeatureError::from("color-palette:into_color_index")))
+    }
+
+    default fn from_color_palette(&self, _colors: Vec<[u8; 3]>) -> R<Event> {
+        Err(Box::new(UnsupportedFeatureError::from("color-palette:from_color_palette")))
+    }
+}
+
 /// A grid controller is typically a MIDI device with pads arranged on a grid layout.
 /// It _must_ be able to expose its size and transform MIDI events into coordinates.
 pub trait GridController {
