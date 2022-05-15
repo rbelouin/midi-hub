@@ -25,6 +25,8 @@ impl From<&'static str> for UnsupportedFeatureError {
     }
 }
 
+pub trait Features: AppSelector + ColorPalette + GridController + ImageRenderer + IndexSelector {}
+
 /// An app selector is a device that provides a UI to switch between different midi-hub apps.
 pub trait AppSelector {
     /// Convert a MIDI event into an index, triggering the selection of the corresponding app.

@@ -1,7 +1,7 @@
 use crate::midi::{Error, Event};
 use crate::midi::features::{R, AppSelector};
 
-use super::device::LaunchpadProEventTransformer;
+use super::device::LaunchpadProFeatures;
 
 /// On the Launchpad Pro, we’ll use the right column to select applications:
 ///    ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮
@@ -25,7 +25,7 @@ use super::device::LaunchpadProEventTransformer;
 ///    ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮
 ///    ╰╯ ╰╯ ╰╯ ╰╯ ╰╯ ╰╯ ╰╯ ╰╯
 
-impl AppSelector for LaunchpadProEventTransformer {
+impl AppSelector for LaunchpadProFeatures {
     fn into_app_index(&self, event: Event) ->  R<Option<usize>> {
         return Ok(match event {
             // event must be a "note down" with a strictly positive velocity
@@ -75,21 +75,21 @@ mod test {
 
     #[test]
     fn into_app_index_given_incorrect_status_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([128, 89, 10, 0]);
-        assert_eq!(None, transformer.into_app_index(event).expect("into_app_index should not fail"));
+        assert_eq!(None, features.into_app_index(event).expect("into_app_index should not fail"));
     }
 
     #[test]
     fn into_app_index_given_low_velocity_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([176, 89, 0, 0]);
-        assert_eq!(None, transformer.into_app_index(event).expect("into_app_index should not fail"));
+        assert_eq!(None, features.into_app_index(event).expect("into_app_index should not fail"));
     }
 
     #[test]
     fn into_app_index_given_out_of_grid_value_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let events = vec![
             [176, 08, 10, 0],
             [176, 09, 10, 0],
@@ -107,16 +107,16 @@ mod test {
 
         for event in events {
             let event = Event::Midi(event);
-            assert_eq!(None, transformer.into_app_index(event).expect("into_app_index should not fail"));
+            assert_eq!(None, features.into_app_index(event).expect("into_app_index should not fail"));
         }
     }
 
     #[test]
     fn into_app_index_should_correct_value() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let actual_output = vec![19, 29, 39, 49, 59, 69, 79, 89]
             .iter()
-            .map(|code| transformer
+            .map(|code| features
                 .into_app_index(Event::Midi([176, *code, 10, 0]))
                 .expect("into_app_index should not fail"))
             .collect::<Vec<Option<usize>>>();
@@ -131,23 +131,23 @@ mod test {
 
     #[test]
     fn from_app_colors_when_too_many_colors_then_return_out_of_bound_error() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         // the Launchpad Pro won’t support nine applications, even if they all use black!
         let app_colors = vec![[0, 0, 0]; 9];
-        let actual_event = transformer.from_app_colors(app_colors);
+        let actual_event = features.from_app_colors(app_colors);
         assert!(actual_event.is_err());
     }
 
     #[test]
     fn from_app_colors_when_valid_apps_then_divide_all_values_by_four() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let app_colors = vec![
             [12, 24, 48],
             [96, 16, 36],
             [8, 192, 56],
         ];
 
-        let actual_event = transformer.from_app_colors(app_colors).unwrap();
+        let actual_event = features.from_app_colors(app_colors).unwrap();
         assert_eq!(actual_event, Event::SysEx(vec![
                 // Prefix for "bluk lighting" a set of LEDs
                 240, 0, 32, 41, 2, 16, 11,

@@ -1,15 +1,16 @@
 use std::convert::From;
 
-use crate::midi::{Reader, Writer, Error, EventTransformer};
+use crate::midi::{Reader, Writer, Error};
+use crate::midi::features::Features;
 
 pub struct LaunchpadPro<C> where C: Reader + Writer {
     pub connection: C,
-    pub transformer: &'static LaunchpadProEventTransformer,
+    pub features: LaunchpadProFeatures,
 }
 
 impl<C> From<C> for LaunchpadPro<C> where C: Reader + Writer {
     fn from(connection: C) -> LaunchpadPro<C> {
-        return LaunchpadPro { connection, transformer: &LAUNCHPADPRO_EVENT_TRANSFORMER };
+        return LaunchpadPro { connection, features: LaunchpadProFeatures::new() };
     }
 }
 
@@ -29,16 +30,11 @@ impl<C> Writer for LaunchpadPro<C> where C: Reader + Writer {
     }
 }
 
-pub fn transformer() -> &'static LaunchpadProEventTransformer {
-    return &LAUNCHPADPRO_EVENT_TRANSFORMER;
-}
-
-static LAUNCHPADPRO_EVENT_TRANSFORMER: LaunchpadProEventTransformer = LaunchpadProEventTransformer::new();
-pub struct LaunchpadProEventTransformer {}
-impl LaunchpadProEventTransformer {
-    const fn new() -> LaunchpadProEventTransformer {
-        LaunchpadProEventTransformer {}
+pub struct LaunchpadProFeatures {}
+impl LaunchpadProFeatures {
+    pub fn new() -> LaunchpadProFeatures {
+        LaunchpadProFeatures {}
     }
 }
 
-impl EventTransformer for LaunchpadProEventTransformer {}
+impl Features for LaunchpadProFeatures {}

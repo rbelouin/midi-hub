@@ -7,7 +7,7 @@ mod image_renderer;
 mod index_selector;
 
 pub use device::LaunchpadPro;
-pub use device::transformer;
+pub use device::LaunchpadProFeatures;
 
 #[cfg(test)]
 mod test {

@@ -5,15 +5,12 @@ use portmidi::{InputPort, OutputPort, MidiEvent, MidiMessage};
 
 pub use crate::image::Image;
 use super::Error;
-use super::features::{AppSelector, ColorPalette, GridController, ImageRenderer, IndexSelector};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     Midi([u8; 4]),
     SysEx(Vec<u8>),
 }
-
-pub trait EventTransformer: AppSelector + ColorPalette + GridController + ImageRenderer + IndexSelector {}
 
 /// MIDI Device that is able to emit MIDI events
 pub trait Reader {

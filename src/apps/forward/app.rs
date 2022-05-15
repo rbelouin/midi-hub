@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc;
 
 use crate::apps::{App, In, Out};
 use crate::image::Image;
-use crate::midi::EventTransformer;
+use crate::midi::features::Features;
 
 use super::config::Config;
 
@@ -17,8 +19,8 @@ pub const COLOR: [u8; 3] = [0, 0, 255];
 impl Forward {
     pub fn new(
         _config: Config,
-        _input_transformer: &'static (dyn EventTransformer + Sync),
-        _output_transformer: &'static (dyn EventTransformer + Sync),
+        _input_features: Arc<dyn Features + Sync + Send>,
+        _output_features: Arc<dyn Features + Sync + Send>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel::<In>(32);
 

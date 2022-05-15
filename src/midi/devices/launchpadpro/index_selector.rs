@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use crate::midi::Event;
 use crate::midi::features::{R, IndexSelector};
 
-use super::device::LaunchpadProEventTransformer;
+use super::device::LaunchpadProFeatures;
 
 #[derive(Debug)]
 struct IndexOutOfBoundError {
@@ -19,7 +19,7 @@ impl Display for IndexOutOfBoundError {
     }
 }
 
-impl IndexSelector for LaunchpadProEventTransformer {
+impl IndexSelector for LaunchpadProFeatures {
     fn into_index(&self, event: Event) -> R<Option<usize>> {
         return Ok(match event {
             // event must be a "note down" with a strictly positive velocity
@@ -60,21 +60,21 @@ mod tests {
 
     #[test]
     fn into_index_given_incorrect_status_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([128, 53, 10, 0]);
-        assert_eq!(None, transformer.into_index(event).expect("into_index should not fail"));
+        assert_eq!(None, features.into_index(event).expect("into_index should not fail"));
     }
 
     #[test]
     fn into_index_given_low_velocity_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([144, 53, 0, 0]);
-        assert_eq!(None, transformer.into_index(event).expect("into_index should not fail"));
+        assert_eq!(None, features.into_index(event).expect("into_index should not fail"));
     }
 
     #[test]
     fn into_index_given_out_of_grid_value_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let events = vec![
             [144, 00, 10, 0],
             [144, 01, 10, 0],
@@ -92,13 +92,13 @@ mod tests {
 
         for event in events {
             let event = Event::Midi(event);
-            assert_eq!(None, transformer.into_index(event).expect("into_index should not fail"));
+            assert_eq!(None, features.into_index(event).expect("into_index should not fail"));
         }
     }
 
     #[test]
     fn into_index_should_correct_value() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let actual_output = vec![
             81, 82, 83, 84, 85, 86, 87, 88,
             71, 72, 73, 74, 75, 76, 77, 78,
@@ -110,7 +110,7 @@ mod tests {
             11, 12, 13, 14, 15, 16, 17, 18,
         ]
             .iter()
-            .map(|code| transformer
+            .map(|code| features
                 .into_index(Event::Midi([144, *code, 10, 0]))
                 .expect("into_index should not fail"))
             .collect::<Vec<Option<usize>>>();

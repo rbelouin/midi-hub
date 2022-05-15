@@ -5,7 +5,7 @@ use crate::image::{Image, scale};
 use crate::midi::Event;
 use crate::midi::features::{R, GridController, ImageRenderer};
 
-use super::device::LaunchpadProEventTransformer;
+use super::device::LaunchpadProFeatures;
 
 #[derive(Debug)]
 struct UnexpectedNumberOfBytes {
@@ -20,7 +20,7 @@ impl Display for UnexpectedNumberOfBytes {
     }
 }
 
-impl ImageRenderer for LaunchpadProEventTransformer {
+impl ImageRenderer for LaunchpadProFeatures {
     fn from_image(&self, image: Image) -> R<Event> {
         let (width, height) = self.get_grid_size()?;
         let scaled_image = scale(&image, width, height)
@@ -32,7 +32,7 @@ impl ImageRenderer for LaunchpadProEventTransformer {
     }
 }
 
-impl LaunchpadProEventTransformer {
+impl LaunchpadProFeatures {
     fn get_size(&self) -> R<usize> {
         let (width, height) = self.get_grid_size()?;
         // one byte for each red/green/blue color
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_reverse_rows() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let input = vec![
             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
             1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -105,7 +105,7 @@ mod tests {
             7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
         ];
 
-        let actual_output = transformer.reverse_rows(input).expect("Test input is expected to be valid");
+        let actual_output = features.reverse_rows(input).expect("Test input is expected to be valid");
         assert_eq!(actual_output, vec![
             7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
             6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_from_image_should_reverse_rows_and_divide_color_values_by_four() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
 
         // This image will be scaled to fit on a 8x8 grid
         let image = Image { width: 16, height: 16, bytes: vec![
@@ -142,7 +142,7 @@ mod tests {
             Vec::from([224; 16 * 3]),
         ].concat() };
 
-        let event = transformer.from_image(image).unwrap();
+        let event = features.from_image(image).unwrap();
         assert_eq!(event, Event::SysEx(vec![
             // Launchpad Pro prefix for lighting pixels
             Vec::from([240, 0, 32, 41, 2, 16, 15, 1]),

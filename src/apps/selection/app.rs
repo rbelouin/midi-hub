@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc::{Sender, Receiver, channel};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 use crate::apps::{App, In, Out};
 
-use crate::midi::{EventTransformer, Image};
+use crate::midi::Image;
+use crate::midi::features::Features;
 
 use super::config::Config;
 
@@ -13,8 +16,8 @@ pub const COLOR: [u8; 3] = [255, 255, 255];
 pub struct Selection {
     pub apps: Vec<Box<dyn App>>,
     pub selected_app: usize,
-    input_transformer: &'static (dyn EventTransformer + Sync),
-    output_transformer: &'static (dyn EventTransformer + Sync),
+    input_features: Arc<dyn Features + Sync + Send>,
+    output_features: Arc<dyn Features + Sync + Send>,
     out_sender: Sender<Out>,
     out_receiver: Receiver<Out>,
 }
@@ -22,15 +25,15 @@ pub struct Selection {
 impl Selection {
     pub fn new(
         config: Config,
-        input_transformer: &'static (dyn EventTransformer + Sync),
-        output_transformer: &'static (dyn EventTransformer + Sync),
+        input_features: Arc<dyn Features + Sync + Send>,
+        output_features: Arc<dyn Features + Sync + Send>,
     ) -> Self {
         let (out_sender, out_receiver) = channel::<Out>(32);
         let selection = Selection {
-            apps: config.apps.start_all(input_transformer, output_transformer),
+            apps: config.apps.start_all(Arc::clone(&input_features), Arc::clone(&output_features)),
             selected_app: 0,
-            input_transformer,
-            output_transformer,
+            input_features,
+            output_features,
             out_sender,
             out_receiver,
         };
@@ -41,7 +44,7 @@ impl Selection {
     }
 
     fn render_app_colors(&self) {
-        self.output_transformer.from_app_colors(self.apps.iter().map(|app| app.get_color()).collect())
+        self.output_features.from_app_colors(self.apps.iter().map(|app| app.get_color()).collect())
             .map_err(|err| format!("[selection] could not render app colors: {}", err))
             .and_then(|event| self.out_sender.blocking_send(event.into())
                 .map_err(|err| format!("[selection] could not send app colors: {}", err)))
@@ -66,7 +69,7 @@ impl App for Selection {
     fn send(&mut self, event: In) -> Result<(), SendError<In>> {
         match event {
             In::Midi(event) => {
-                let selected_app = self.input_transformer.into_app_index(event.clone()).ok().flatten()
+                let selected_app = self.input_features.into_app_index(event.clone()).ok().flatten()
                     .and_then(|app_index| {
                         let selected_app = self.apps.get_mut(app_index as usize);
                         if selected_app.is_some() {
@@ -78,13 +81,13 @@ impl App for Selection {
                 selected_app
                     .map(|selected_app| {
                         println!("[selection] selecting {}", selected_app.get_name());
-                        self.output_transformer.from_color_palette(vec![[0, 0, 0]; 8])
+                        self.output_features.from_color_palette(vec![[0, 0, 0]; 8])
                             .map_err(|err| format!("[selection] could not transform color palette: {}", err))
                             .and_then(|event| self.out_sender.blocking_send(event.into())
                                 .map_err(|err| format!("[selection] could not clean the color palette: {}", err)))
                             .unwrap_or_else(|err| eprintln!("{}", err));
 
-                        self.output_transformer.from_image(selected_app.get_logo())
+                        self.output_features.from_image(selected_app.get_logo())
                             .map_err(|err| format!("[selection] could not transform the image: {}", err))
                             .and_then(|event| self.out_sender.blocking_send(event.into())
                                 .map_err(|err| format!("[selection] could not send the image: {}", err)))
@@ -131,12 +134,12 @@ impl App for Selection {
 #[cfg(test)]
 mod test {
     use crate::midi::Event;
-    use crate::midi::features::{R, AppSelector};
+    use crate::midi::features::{R, AppSelector, Features};
     use crate::apps;
     use super::*;
 
-    struct Transformer {}
-    impl AppSelector for Transformer {
+    struct TestFeatures {}
+    impl AppSelector for TestFeatures {
         fn from_app_colors(&self, app_colors: Vec<[u8; 3]>) -> R<Event> {
             let mut bytes = vec![];
             for app_color in &app_colors {
@@ -147,9 +150,7 @@ mod test {
             return Ok(Event::SysEx(bytes));
         }
     }
-    impl EventTransformer for Transformer {}
-
-    const TRANSFORMER: Transformer = Transformer {};
+    impl Features for TestFeatures {}
 
     #[test]
     fn test_render_app_colors_on_instantiation() {
@@ -171,8 +172,8 @@ mod test {
                     selection: None,
                 }),
             },
-            &TRANSFORMER,
-            &TRANSFORMER,
+            Arc::new(TestFeatures {}),
+            Arc::new(TestFeatures {}),
         );
 
         let event = selection_app.receive().expect("an event should be received");

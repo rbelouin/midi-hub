@@ -1,9 +1,9 @@
-use crate::midi::EventTransformer;
+use crate::midi::features::Features;
 
-pub fn transformer() -> &'static DefaultEventTransformer {
-    return &DEFAULT_EVENT_TRANSFORMER;
+pub struct DefaultFeatures {}
+impl Features for DefaultFeatures {}
+impl DefaultFeatures {
+    pub fn new() -> DefaultFeatures {
+        DefaultFeatures {}
+    }
 }
-
-const DEFAULT_EVENT_TRANSFORMER: DefaultEventTransformer = DefaultEventTransformer {};
-pub struct DefaultEventTransformer {}
-impl EventTransformer for DefaultEventTransformer {}

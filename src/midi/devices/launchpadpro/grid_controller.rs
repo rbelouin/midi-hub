@@ -1,9 +1,9 @@
 use crate::midi::Event;
 use crate::midi::features::{R, GridController};
 
-use super::device::LaunchpadProEventTransformer;
+use super::device::LaunchpadProFeatures;
 
-impl GridController for LaunchpadProEventTransformer {
+impl GridController for LaunchpadProFeatures {
     fn get_grid_size(&self) -> R<(usize, usize)> {
         return Ok((8, 8));
     }
@@ -34,16 +34,16 @@ mod test {
 
     #[test]
     fn into_coordinates_given_incorrect_status_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([128, 53, 10, 0]);
-        assert_eq!(None, transformer.into_coordinates(event).expect("into_coordinates should not fail"));
+        assert_eq!(None, features.into_coordinates(event).expect("into_coordinates should not fail"));
     }
 
     #[test]
     fn into_coordinates_given_low_velocity_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([144, 53, 0, 0]);
-        assert_eq!(None, transformer.into_coordinates(event).expect("into_coordinates should not fail"));
+        assert_eq!(None, features.into_coordinates(event).expect("into_coordinates should not fail"));
     }
 
     #[test]
@@ -64,15 +64,15 @@ mod test {
         ];
 
         for event in events {
-            let transformer = super::super::transformer();
+            let features = super::super::LaunchpadProFeatures::new();
             let event = Event::Midi(event);
-            assert_eq!(None, transformer.into_coordinates(event).expect("into_coordinates should not fail"));
+            assert_eq!(None, features.into_coordinates(event).expect("into_coordinates should not fail"));
         }
     }
 
     #[test]
     fn into_coordinates_should_correct_value() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let actual_output = vec![
             81, 82, 83, 84, 85, 86, 87, 88,
             71, 72, 73, 74, 75, 76, 77, 78,
@@ -84,7 +84,7 @@ mod test {
             11, 12, 13, 14, 15, 16, 17, 18,
         ]
             .iter()
-            .map(|code| transformer
+            .map(|code| features
                 .into_coordinates(Event::Midi([144, *code, 10, 0]))
                 .expect("into_coordinates should not fail"))
             .collect::<Vec<Option<(usize, usize)>>>();

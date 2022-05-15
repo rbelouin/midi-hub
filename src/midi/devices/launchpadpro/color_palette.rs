@@ -1,7 +1,7 @@
 use crate::midi::{Error, Event};
 use crate::midi::features::{R, ColorPalette};
 
-use super::device::LaunchpadProEventTransformer;
+use super::device::LaunchpadProFeatures;
 
 /// On the Launchpad Pro, we’ll use the bottom row to select colors:
 ///    ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮
@@ -25,7 +25,7 @@ use super::device::LaunchpadProEventTransformer;
 ///    ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮ ╭╮
 ///    ╰╯ ╰╯ ╰╯ ╰╯ ╰╯ ╰╯ ╰╯ ╰╯
 ///     ↖0 ↖1 ↖2 ↖3 ↖4 ↖5 ↖6 ↖7
-impl ColorPalette for LaunchpadProEventTransformer {
+impl ColorPalette for LaunchpadProFeatures {
     fn into_color_palette_index(&self, event: Event) -> R<Option<usize>> {
         return Ok(match event {
             // 176: controller on
@@ -70,25 +70,25 @@ mod test {
 
     #[test]
     fn into_color_palette_index_given_incorrect_status_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([128, 3, 10, 0]);
-        assert_eq!(None, transformer
+        assert_eq!(None, features
             .into_color_palette_index(event)
             .expect("into_color_palette_index should not fail"));
     }
 
     #[test]
     fn into_color_palette_index_given_low_velocity_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let event = Event::Midi([176, 3, 0, 0]);
-        assert_eq!(None, transformer
+        assert_eq!(None, features
             .into_color_palette_index(event)
             .expect("into_color_palette_index should not fail"));
     }
 
     #[test]
     fn into_color_palette_index_given_out_of_grid_value_should_return_none() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let events = vec![
             [176, 00, 10, 0],
             [176, 09, 10, 0],
@@ -106,7 +106,7 @@ mod test {
 
         for event in events {
             let event = Event::Midi(event);
-            assert_eq!(None, transformer
+            assert_eq!(None, features
                 .into_color_palette_index(event)
                 .expect("into_color_palette_index should not fail"));
         }
@@ -114,10 +114,10 @@ mod test {
 
     #[test]
     fn into_color_palette_index_should_correct_value() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let actual_output = vec![1, 2, 3, 4, 5, 6, 7, 8]
             .iter()
-            .map(|code| transformer
+            .map(|code| features
                 .into_color_palette_index(Event::Midi([176, *code, 10, 0]))
                 .expect("into_color_palette_index should not fail"))
             .collect::<Vec<Option<usize>>>();
@@ -132,23 +132,23 @@ mod test {
 
     #[test]
     fn from_color_palette_when_too_many_colors_then_return_out_of_bound_error() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         // a color palette of nine items should not be supported (even if they’re all black)
         let color_palette = vec![[0, 0, 0]; 9];
-        let actual_event = transformer.from_color_palette(color_palette);
+        let actual_event = features.from_color_palette(color_palette);
         assert!(actual_event.is_err());
     }
 
     #[test]
     fn from_color_palette_when_valid_palette_then_divide_all_values_by_four() {
-        let transformer = super::super::transformer();
+        let features = super::super::LaunchpadProFeatures::new();
         let color_palette = vec![
             [12, 24, 48],
             [96, 16, 36],
             [8, 192, 56],
         ];
 
-        let actual_event = transformer.from_color_palette(color_palette).unwrap();
+        let actual_event = features.from_color_palette(color_palette).unwrap();
         assert_eq!(actual_event, Event::SysEx(vec![
                 // Prefix for "bluk lighting" a set of LEDs
                 240, 0, 32, 41, 2, 16, 11,

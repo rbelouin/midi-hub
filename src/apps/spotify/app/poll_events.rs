@@ -28,7 +28,7 @@ async fn handle_event<F, Fut>(state: Arc<State>, play_or_pause: F, event: In) wh
 {
     match event {
         In::Midi(event) => {
-            match state.input_transformer.into_index(event) {
+            match state.input_features.into_index(event) {
                 Ok(Some(index)) => {
                     track_last_action(Arc::clone(&state));
                     play_or_pause(Arc::clone(&state), index).await;
@@ -219,8 +219,8 @@ mod test {
 
         Arc::new(State {
             client,
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
+            input_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            output_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(last_action),
             tracks: Mutex::new(Some(vec![])),
