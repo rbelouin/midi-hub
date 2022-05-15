@@ -3,7 +3,7 @@ mod device;
 mod app_selector;
 mod color_palette;
 mod grid_controller;
-mod image;
+mod image_renderer;
 mod index;
 
 pub use device::LaunchpadPro;

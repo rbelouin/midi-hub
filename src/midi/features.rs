@@ -2,9 +2,11 @@ use std::convert::From;
 use std::error::Error as StdError;
 use std::fmt::{Debug, Display, Error, Formatter};
 
+use crate::image::Image;
+
 use super::Event;
 
-pub type R<A> = Result<A, Box<dyn StdError>>;
+pub type R<A> = Result<A, Box<dyn StdError + Send>>;
 
 #[derive(Debug)]
 pub struct UnsupportedFeatureError {
@@ -91,5 +93,18 @@ impl<T> GridController for T {
 
     default fn into_coordinates(&self, _event: Event) -> R<Option<(usize, usize)>> {
         Err(Box::new(UnsupportedFeatureError::from("grid-controller:into_coordinates")))
+    }
+}
+
+/// An image renderer is a device that is a grid controller,
+/// with the ability to light its pads with a sufficiently wide range of colors
+/// so that an image can be rendered (in low quality, admittedly).
+pub trait ImageRenderer: GridController {
+    fn from_image(&self, image: Image) -> R<Event>;
+}
+
+impl<T> ImageRenderer for T {
+    default fn from_image(&self, _image: Image) -> R<Event> {
+        Err(Box::new(UnsupportedFeatureError::from("image-renderer:from_image")))
     }
 }

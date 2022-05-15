@@ -154,6 +154,7 @@ mod test {
     use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyTrack};
     use crate::midi::{Error, Event, EventTransformer};
+    use crate::midi::features::{R, ImageRenderer};
     use super::*;
 
 
@@ -162,17 +163,18 @@ mod test {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+        impl ImageRenderer for FakeEventTransformer {
+            fn from_image(&self, mut image: Image) -> R<Event> {
                 let mut prefix = Vec::from("IMG".as_bytes());
                 let mut bytes = vec![];
                 bytes.append(&mut prefix);
                 bytes.append(&mut image.bytes);
                 return Ok(Event::SysEx(bytes));
+            }
+        }
+        impl EventTransformer for FakeEventTransformer {
+            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
+                return Err(Error::Unsupported);
             }
 
             fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
@@ -215,17 +217,18 @@ mod test {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+        impl ImageRenderer for FakeEventTransformer {
+            fn from_image(&self, mut image: Image) -> R<Event> {
                 let mut prefix = Vec::from("IMG".as_bytes());
                 let mut bytes = vec![];
                 bytes.append(&mut prefix);
                 bytes.append(&mut image.bytes);
                 return Ok(Event::SysEx(bytes));
+            }
+        }
+        impl EventTransformer for FakeEventTransformer {
+            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
+                return Err(Error::Unsupported);
             }
 
             fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
@@ -276,10 +279,6 @@ mod test {
                 return Err(Error::Unsupported);
             }
 
-            fn from_image(&self, _image: Image) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
             fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
@@ -312,10 +311,6 @@ mod test {
         struct FakeEventTransformer {}
         impl EventTransformer for FakeEventTransformer {
             fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, _image: Image) -> Result<Event, Error> {
                 return Err(Error::Unsupported);
             }
 

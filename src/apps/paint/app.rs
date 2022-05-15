@@ -140,7 +140,7 @@ impl App for Paint {
 mod test {
     use crate::image::Image;
     use crate::midi::{Event, Error};
-    use crate::midi::features::{R, ColorPalette, GridController};
+    use crate::midi::features::{R, ColorPalette, GridController, ImageRenderer};
     use super::*;
 
     #[test]
@@ -247,13 +247,15 @@ mod test {
             return Ok(Event::SysEx(bytes));
         }
     }
-    impl EventTransformer for FakeEventTransformer {
-        fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
-        fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+    impl ImageRenderer for FakeEventTransformer {
+        fn from_image(&self, mut image: Image) -> R<Event> {
             let mut bytes = Vec::from("image".as_bytes());
             bytes.append(&mut image.bytes);
             return Ok(Event::SysEx(bytes));
         }
+    }
+    impl EventTransformer for FakeEventTransformer {
+        fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
         fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
     }
 }

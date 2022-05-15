@@ -1,4 +1,6 @@
 use std::convert::From;
+use std::error::Error as StdError;
+use std::fmt::{Display, Formatter};
 
 use super::Image;
 
@@ -6,6 +8,24 @@ use super::Image;
 pub enum Error {
     InvalidScaleForImage(usize, usize, usize, usize),
     InvalidImage(usize, usize),
+}
+
+impl StdError for Error {}
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Error::InvalidScaleForImage(new_w, new_h, old_w, old_h) =>
+                write!(
+                    f,
+                    "invalid scale (width: {}, height: {}) for image (width: {}, height: {})",
+                    new_w,
+                    new_h,
+                    old_w,
+                    old_h),
+            Error::InvalidImage(w, h) =>
+                write!(f, "invalid image (width: {}, height: {})", w, h),
+        }
+    }
 }
 
 /// Coordinate1D is a pointer to a byte in an image perceived as a one-dimensional array of bytes.

@@ -1,4 +1,4 @@
-use crate::midi::{Error, Event, EventTransformer, Image};
+use crate::midi::{Error, Event, EventTransformer};
 
 pub fn transformer() -> &'static DefaultEventTransformer {
     return &DEFAULT_EVENT_TRANSFORMER;
@@ -15,10 +15,6 @@ impl EventTransformer for DefaultEventTransformer {
             },
             _ => Ok(None),
         };
-    }
-
-    fn from_image(&self, _image: Image) -> Result<Event, Error> {
-        return Err(Error::Unsupported);
     }
 
     fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> {

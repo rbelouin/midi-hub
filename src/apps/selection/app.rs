@@ -130,7 +130,7 @@ impl App for Selection {
 
 #[cfg(test)]
 mod test {
-    use crate::midi::{Error, Event, Image};
+    use crate::midi::{Error, Event};
     use crate::midi::features::{R, AppSelector};
     use crate::apps;
     use super::*;
@@ -149,7 +149,6 @@ mod test {
     }
     impl EventTransformer for Transformer {
         fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
-        fn from_image(&self, _image: Image) -> Result<Event, Error> { Err(Error::Unsupported) }
         fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
     }
 

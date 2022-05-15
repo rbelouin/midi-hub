@@ -1,6 +1,6 @@
 use std::convert::From;
 
-use crate::midi::{Reader, Writer, Error, Event, EventTransformer, Image};
+use crate::midi::{Reader, Writer, Error, Event, EventTransformer};
 
 pub struct LaunchpadPro<C> where C: Reader + Writer {
     pub connection: C,
@@ -44,10 +44,6 @@ impl LaunchpadProEventTransformer {
 impl EventTransformer for LaunchpadProEventTransformer {
     fn into_index(&self, event: Event) -> Result<Option<u16>, Error> {
         return super::index::into_index(event);
-    }
-
-    fn from_image(&self, image: Image) -> Result<Event, Error> {
-        return super::image::from_image(image);
     }
 
     fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
