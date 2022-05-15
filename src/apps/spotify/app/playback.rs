@@ -5,7 +5,7 @@ use super::app::*;
 
 pub async fn play_or_pause(
     state: Arc<State>,
-    index: u16,
+    index: usize,
 ) {
     let playback = state.playback.lock().unwrap().clone();
     match playback {
@@ -22,7 +22,7 @@ pub async fn play_or_pause(
 
 async fn play(
     state: Arc<State>,
-    index: u16,
+    index: usize,
 ) {
     // Find the track corresponding to the given index
     let track = state.tracks.lock().unwrap().as_ref()

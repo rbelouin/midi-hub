@@ -10,7 +10,6 @@ pub enum Error {
     ReadError,
     WriteError,
     OutOfBoundIndexError,
-    Unsupported,
 }
 
 impl fmt::Display for Error {
@@ -23,7 +22,6 @@ impl fmt::Display for Error {
             Error::ReadError => write!(f, "[midi] could not read an event"),
             Error::WriteError => write!(f, "[midi] could not write an event"),
             Error::OutOfBoundIndexError => write!(f, "[midi] could not handle index"),
-            Error::Unsupported => write!(f, "[midi] unsupported operation"),
         }
     }
 }

@@ -45,8 +45,8 @@ pub struct State {
 pub enum PlaybackState {
     PAUSED,
     PAUSING,
-    REQUESTED(u16),
-    PLAYING(u16),
+    REQUESTED(usize),
+    PLAYING(usize),
 }
 
 pub struct Spotify {

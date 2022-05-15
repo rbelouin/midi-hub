@@ -108,3 +108,38 @@ impl<T> ImageRenderer for T {
         Err(Box::new(UnsupportedFeatureError::from("image-renderer:from_image")))
     }
 }
+
+/// An index selector is a device that can be used to select an item in a collection.
+/// Example given: a track in a playlist.
+pub trait IndexSelector {
+    fn into_index(&self, event: Event) -> R<Option<usize>>;
+
+    /// This function will be called to highlight the UI element of the device
+    /// corresponding to the index being currently selected.
+    fn from_index_to_highlight(&self, index: usize) -> R<Event>;
+}
+
+impl<T> IndexSelector for T {
+    /// The default implementation simply maps notes from C2 and upwards to unsigned integers.
+    ///
+    /// ║0 ║1║2 ║3║4 ║5 ║6║7 ║8║9 ...
+    /// ║  ║ ║  ║ ║  ║  ║ ║  ║ ║
+    /// ║C2╚╦╝D2╚╦╝E2║F2╚╦╝G2╚╦╝A2...
+    /// ╚═══╩════╩═══╩═══╩════╩═══
+    default fn into_index(&self, event: Event) -> R<Option<usize>> {
+         return match event {
+            // filter "note down" events, for notes higher than C2 (36), and with strictly positive velocity
+            // 144: note-down
+            // data1 >= 36: corresponds to C2 and upwards
+            // data2 > 0: corresponds to the velocity (the key really needs to be pressed)
+            Event::Midi([144, data1, data2, _]) if data1 >= 36 && data2 > 0 => {
+                Ok(Some((data1 - 36).into()))
+            },
+            _ => Ok(None),
+        };
+    }
+
+    default fn from_index_to_highlight(&self, _index: usize) -> R<Event> {
+        Err(Box::new(UnsupportedFeatureError::from("index-selector:from_index_to_highlight")))
+    }
+}

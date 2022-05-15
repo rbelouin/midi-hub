@@ -18,7 +18,7 @@ struct State {
     config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
-    playing: Mutex<Option<u16>>,
+    playing: Mutex<Option<usize>>,
 }
 
 pub struct Youtube {

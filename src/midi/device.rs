@@ -5,7 +5,7 @@ use portmidi::{InputPort, OutputPort, MidiEvent, MidiMessage};
 
 pub use crate::image::Image;
 use super::Error;
-use super::features::{AppSelector, ColorPalette, GridController, ImageRenderer};
+use super::features::{AppSelector, ColorPalette, GridController, ImageRenderer, IndexSelector};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -13,15 +13,7 @@ pub enum Event {
     SysEx(Vec<u8>),
 }
 
-pub trait EventTransformer: AppSelector + ColorPalette + GridController + ImageRenderer {
-    /// Device that can associate a MIDI event to an unsigned integer,
-    /// that can be used to access elements of an indexed collections.
-    fn into_index(&self, event: Event) -> Result<Option<u16>, Error>;
-
-    /// Device that can highlight an element corresponding to an unsigned integer,
-    /// this method can be used to emphasize the active element of a collection.
-    fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error>;
-}
+pub trait EventTransformer: AppSelector + ColorPalette + GridController + ImageRenderer + IndexSelector {}
 
 /// MIDI Device that is able to emit MIDI events
 pub trait Reader {

@@ -4,7 +4,7 @@ mod app_selector;
 mod color_palette;
 mod grid_controller;
 mod image_renderer;
-mod index;
+mod index_selector;
 
 pub use device::LaunchpadPro;
 pub use device::transformer;

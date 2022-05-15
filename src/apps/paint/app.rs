@@ -139,7 +139,7 @@ impl App for Paint {
 #[cfg(test)]
 mod test {
     use crate::image::Image;
-    use crate::midi::{Event, Error};
+    use crate::midi::Event;
     use crate::midi::features::{R, ColorPalette, GridController, ImageRenderer};
     use super::*;
 
@@ -254,8 +254,5 @@ mod test {
             return Ok(Event::SysEx(bytes));
         }
     }
-    impl EventTransformer for FakeEventTransformer {
-        fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> { Err(Error::Unsupported) }
-        fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> { Err(Error::Unsupported) }
-    }
+    impl EventTransformer for FakeEventTransformer {}
 }

@@ -153,8 +153,8 @@ mod test {
 
     use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyTrack};
-    use crate::midi::{Error, Event, EventTransformer};
-    use crate::midi::features::{R, ImageRenderer};
+    use crate::midi::{Event, EventTransformer};
+    use crate::midi::features::{R, ImageRenderer, IndexSelector};
     use super::*;
 
 
@@ -172,15 +172,12 @@ mod test {
                 return Ok(Event::SysEx(bytes));
             }
         }
-        impl EventTransformer for FakeEventTransformer {
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
+        impl IndexSelector for FakeEventTransformer {
+            fn from_index_to_highlight(&self, index: usize) -> R<Event> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
         }
+        impl EventTransformer for FakeEventTransformer {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
@@ -226,15 +223,12 @@ mod test {
                 return Ok(Event::SysEx(bytes));
             }
         }
-        impl EventTransformer for FakeEventTransformer {
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
+        impl IndexSelector for FakeEventTransformer {
+            fn from_index_to_highlight(&self, index: usize) -> R<Event> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
         }
+        impl EventTransformer for FakeEventTransformer {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
@@ -274,15 +268,12 @@ mod test {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
+        impl IndexSelector for FakeEventTransformer {
+            fn from_index_to_highlight(&self, index: usize) -> R<Event> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
         }
+        impl EventTransformer for FakeEventTransformer {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
@@ -309,15 +300,7 @@ mod test {
         const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
 
         struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-        }
+        impl EventTransformer for FakeEventTransformer {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
