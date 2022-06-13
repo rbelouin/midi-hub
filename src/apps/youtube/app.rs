@@ -7,18 +7,18 @@ use std::time::{Duration, Instant};
 
 use crate::apps::{App, In, Out, ServerCommand};
 use crate::image::Image;
-use crate::midi::EventTransformer;
+use crate::midi::features::Features;
 
 use super::config::Config;
 use super::client;
 
 struct State {
-    input_transformer: &'static (dyn EventTransformer + Sync),
-    output_transformer: &'static (dyn EventTransformer + Sync),
+    input_features: Arc<dyn Features + Sync + Send>,
+    output_features: Arc<dyn Features + Sync + Send>,
     config: Config,
     last_action: Mutex<Instant>,
     items: Mutex<Vec<client::playlist::PlaylistItem>>,
-    playing: Mutex<Option<u16>>,
+    playing: Mutex<Option<usize>>,
 }
 
 pub struct Youtube {
@@ -34,15 +34,15 @@ const DELAY: Duration = Duration::from_millis(5_000);
 impl Youtube {
     pub fn new(
         config: Config,
-        input_transformer: &'static (dyn EventTransformer + Sync),
-        output_transformer: &'static (dyn EventTransformer + Sync),
+        input_features: Arc<dyn Features + Sync + Send>,
+        output_features: Arc<dyn Features + Sync + Send>,
     ) -> Self {
         let (in_sender, mut in_receiver) = mpsc::channel::<In>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let state = Arc::new(State {
-            input_transformer,
-            output_transformer,
+            input_features,
+            output_features,
             config,
             last_action: Mutex::new(Instant::now() - DELAY),
             items: Mutex::new(vec![]),
@@ -108,7 +108,7 @@ impl App for Youtube {
 }
 
 async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) -> Result<(), ()> {
-    let event = state.output_transformer.from_image(get_logo()).map_err(|err| {
+    let event = state.output_features.from_image(get_logo()).map_err(|err| {
         eprintln!("Could not convert the image into a MIDI event: {:?}", err);
         ()
     })?;
@@ -123,7 +123,7 @@ async fn render_youtube_logo(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>) 
     };
 
     if let Some(index) = playing_index {
-        let event = state.output_transformer.from_index_to_highlight(index).map_err(|err| {
+        let event = state.output_features.from_index_to_highlight(index).map_err(|err| {
             eprintln!("Could not convert the index to highlight into a  MIDI event: {:?}", err)
         })?;
         sender.send(event.into()).await.unwrap_or_else(|err| {
@@ -170,7 +170,7 @@ async fn pull_playlist_items(state: Arc<State>) -> Result<(), client::Error> {
 async fn handle_youtube_task(state: Arc<State>, sender: Arc<mpsc::Sender<Out>>, event: In) {
     match event {
         In::Midi(event) => {
-            match state.input_transformer.into_index(event) {
+            match state.input_features.into_index(event) {
                 Ok(Some(index)) => {
                     let playing_index = {
                         let playing = state.playing.lock().expect("we should be able to lock state.playing");

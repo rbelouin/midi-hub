@@ -177,8 +177,8 @@ mod test {
 
         Arc::new(State {
             client: Box::new(mocked_client),
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
+            input_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            output_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             access_token: Mutex::new(initial_access_token.map(|s| s.into())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(None),

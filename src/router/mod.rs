@@ -51,7 +51,7 @@ impl Router {
             let output = devices.get(output_name.as_str())
                 .expect(format!("{} is set as an output device for {}, but needs to be configured", output_name, app_name).as_str());
 
-            let app = config.apps.start(app_name, input.transformer, output.transformer)
+            let app = config.apps.start(app_name, Arc::clone(&input.features), Arc::clone(&output.features))
                 .expect(format!("The {} application needs to be configured", app_name).as_str());
 
             links.push((app, input_name.clone(), output_name.clone()));

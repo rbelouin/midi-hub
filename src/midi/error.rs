@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -8,9 +9,7 @@ pub enum Error {
     PortInitializationError,
     ReadError,
     WriteError,
-    ImageRenderError,
     OutOfBoundIndexError,
-    Unsupported,
 }
 
 impl fmt::Display for Error {
@@ -22,9 +21,9 @@ impl fmt::Display for Error {
             Error::PortInitializationError => write!(f, "[midi] error when initializing a port"),
             Error::ReadError => write!(f, "[midi] could not read an event"),
             Error::WriteError => write!(f, "[midi] could not write an event"),
-            Error::ImageRenderError => write!(f, "[midi] could not render image"),
             Error::OutOfBoundIndexError => write!(f, "[midi] could not handle index"),
-            Error::Unsupported => write!(f, "[midi] unsupported operation"),
         }
     }
 }
+
+impl StdError for Error {}

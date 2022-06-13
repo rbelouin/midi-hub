@@ -1,11 +1,12 @@
 use std::convert::From;
+use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 use crate::image::Image;
-use crate::midi::EventTransformer;
 pub use crate::midi::Event as MidiEvent;
+pub use crate::midi::features::Features;
 pub use crate::server::Command as ServerCommand;
 
 pub mod forward;
@@ -47,33 +48,33 @@ impl Config {
     pub fn start(
         &self,
         app_name: &str,
-        input_transformer: &'static (dyn EventTransformer + Sync),
-        output_transformer: &'static (dyn EventTransformer + Sync),
+        input_features: Arc<dyn Features + Sync + Send>,
+        output_features: Arc<dyn Features + Sync + Send>,
     ) -> Option<Box<dyn App>> {
         return match app_name {
             forward::app::NAME => {
                 let config = self.forward.as_ref()?;
-                Some(Box::new(forward::app::Forward::new(config.clone(), input_transformer, output_transformer)))
+                Some(Box::new(forward::app::Forward::new(config.clone(), input_features, output_features)))
             }
             paint::app::NAME => {
                 let config = self.paint.as_ref()?;
-                Some(Box::new(paint::app::Paint::new(config.clone(), input_transformer, output_transformer)))
+                Some(Box::new(paint::app::Paint::new(config.clone(), input_features, output_features)))
             },
             spotify::app::NAME => {
                 let config = self.spotify.as_ref()?;
                 Some(Box::new(spotify::app::Spotify::new(
                     config.clone(),
                     Box::new(spotify::client::SpotifyApiClientImpl::new()),
-                    input_transformer,
-                    output_transformer)))
+                    input_features,
+                    output_features)))
             }
             youtube::app::NAME => {
                 let config = self.youtube.as_ref()?;
-                Some(Box::new(youtube::app::Youtube::new(config.clone(), input_transformer, output_transformer)))
+                Some(Box::new(youtube::app::Youtube::new(config.clone(), input_features, output_features)))
             }
             selection::app::NAME => {
                 let config = self.selection.as_ref()?;
-                Some(Box::new(selection::app::Selection::new(config.clone(), input_transformer, output_transformer)))
+                Some(Box::new(selection::app::Selection::new(config.clone(), input_features, output_features)))
             }
             _ => {
                 eprintln!("[apps] unknown application: {}", app_name);
@@ -84,11 +85,11 @@ impl Config {
 
     pub fn start_all(
         &self,
-        input_transformer: &'static (dyn EventTransformer + Sync),
-        output_transformer: &'static (dyn EventTransformer + Sync),
+        input_features: Arc<dyn Features + Sync + Send>,
+        output_features: Arc<dyn Features + Sync + Send>,
     ) -> Vec<Box<dyn App>> {
         return self.get_configured_app_names().iter().flat_map(|name| {
-            self.start(name.as_str(), input_transformer, output_transformer)
+            self.start(name.as_str(), Arc::clone(&input_features), Arc::clone(&output_features))
         }).collect();
     }
 
@@ -183,8 +184,8 @@ mod test {
     pub fn test_start_missing_app() {
         let app = get_test_config().start(
             "spotify",
-            crate::midi::devices::default::transformer(),
-            crate::midi::devices::default::transformer(),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
         );
 
         assert!(app.is_none());
@@ -194,8 +195,8 @@ mod test {
     pub fn test_start_configured_app() {
         let app = get_test_config().start(
             "forward",
-            crate::midi::devices::default::transformer(),
-            crate::midi::devices::default::transformer(),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
         );
 
         assert!(app.is_some());
@@ -208,8 +209,8 @@ mod test {
         "#).unwrap();
 
         let apps = config.start_all(
-            crate::midi::devices::default::transformer(),
-            crate::midi::devices::default::transformer(),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
         );
 
         assert_eq!(apps.len(), 0);
@@ -218,8 +219,8 @@ mod test {
     #[test]
     pub fn test_start_all_with_two_apps() {
         let apps = get_test_config().start_all(
-            crate::midi::devices::default::transformer(),
-            crate::midi::devices::default::transformer(),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
         );
 
         assert_eq!(apps.iter().map(|app| app.get_name()).collect::<Vec<&str>>(), vec!["forward", "youtube"]);

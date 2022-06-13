@@ -63,7 +63,7 @@ pub async fn poll_state(
     }
 }
 
-async fn get_currently_playing_index(state: Arc<State>) -> SpotifyApiResult<Option<u16>> {
+async fn get_currently_playing_index(state: Arc<State>) -> SpotifyApiResult<Option<usize>> {
     with_access_token(Arc::clone(&state), |token| async {
         let playback_state = state.client.get_playback_state(token).await?;
 
@@ -74,7 +74,7 @@ async fn get_currently_playing_index(state: Arc<State>) -> SpotifyApiResult<Opti
                 if let Some(tracks) = tracks.as_ref() {
                     for i in 0..tracks.len() {
                         if tracks[i].id == playback_state.item.id {
-                            return Some(i as u16);
+                            return Some(i);
                         }
                     }
                 }
@@ -377,8 +377,8 @@ mod test {
 
         Arc::new(State {
             client: Box::new(mocked_client),
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
+            input_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            output_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(tracks)),

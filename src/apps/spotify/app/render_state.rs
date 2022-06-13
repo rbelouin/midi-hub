@@ -55,7 +55,7 @@ pub async fn render_state(state: Arc<State>) {
 }
 
 async fn render_logo(state: Arc<State>) {
-    match state.output_transformer.from_image(get_logo()) {
+    match state.output_features.from_image(get_logo()) {
         Err(err) => eprintln!("[spotify] could not render the spotify logo: {}", err),
         Ok(event) => {
             state.sender.send(event.into()).await.unwrap_or_else(|err| {
@@ -69,7 +69,7 @@ async fn render_highlighted_index(state: Arc<State>) {
     let playback = state.playback.lock().unwrap().clone();
 
     match playback {
-        REQUESTED(index) | PLAYING(index) => match state.output_transformer.from_index_to_highlight(index) {
+        REQUESTED(index) | PLAYING(index) => match state.output_features.from_index_to_highlight(index) {
             Err(err) => eprintln!("[spotify] could not highlight the index {}: {}", index, err),
             Ok(event) => {
                 state.sender.send(event.into()).await.unwrap_or_else(|err| {
@@ -107,7 +107,7 @@ async fn render_cover(state: Arc<State>) {
                     });
 
                     let event_out = image.and_then(|image| {
-                        return state.output_transformer.from_image(image).map_err(|err| {
+                        return state.output_features.from_image(image).map_err(|err| {
                             eprintln!("[spotify] could not transform image into a MIDI event: {}", err)
                         });
                     });
@@ -153,61 +153,34 @@ mod test {
 
     use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyTrack};
-    use crate::midi::{Error, Event, EventTransformer};
+    use crate::midi::Event;
+    use crate::midi::features::{R, ImageRenderer, IndexSelector, Features};
     use super::*;
 
 
     #[test]
-    fn render_state_when_working_transformer_and_no_playing_index_then_render_state() {
-        const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
-
-        struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+    fn render_state_when_working_features_and_no_playing_index_then_render_state() {
+        struct FakeFeatures {}
+        impl ImageRenderer for FakeFeatures {
+            fn from_image(&self, mut image: Image) -> R<Event> {
                 let mut prefix = Vec::from("IMG".as_bytes());
                 let mut bytes = vec![];
                 bytes.append(&mut prefix);
                 bytes.append(&mut image.bytes);
                 return Ok(Event::SysEx(bytes));
             }
-
-            fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
+        }
+        impl IndexSelector for FakeFeatures {
+            fn from_index_to_highlight(&self, index: usize) -> R<Event> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
         }
+        impl Features for FakeFeatures {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
         let state = get_state_with(
-            &FAKE_EVENT_TRANSFORMER,
+            Arc::new(FakeFeatures {}),
             vec![],
             PAUSED,
             sender,
@@ -235,56 +208,28 @@ mod test {
     }
 
     #[test]
-    fn render_state_when_working_transformer_and_playing_index_then_render_logo_and_highlight_index() {
-        const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
-
-        struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, mut image: Image) -> Result<Event, Error> {
+    fn render_state_when_working_features_and_playing_index_then_render_logo_and_highlight_index() {
+        struct FakeFeatures {}
+        impl ImageRenderer for FakeFeatures {
+            fn from_image(&self, mut image: Image) -> R<Event> {
                 let mut prefix = Vec::from("IMG".as_bytes());
                 let mut bytes = vec![];
                 bytes.append(&mut prefix);
                 bytes.append(&mut image.bytes);
                 return Ok(Event::SysEx(bytes));
             }
-
-            fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
+        }
+        impl IndexSelector for FakeFeatures {
+            fn from_index_to_highlight(&self, index: usize) -> R<Event> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
         }
+        impl Features for FakeFeatures {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
         let state = get_state_with(
-            &FAKE_EVENT_TRANSFORMER,
+            Arc::new(FakeFeatures {}),
             vec![],
             PLAYING(42),
             sender,
@@ -315,52 +260,19 @@ mod test {
     }
 
     #[test]
-    fn render_state_when_transformer_supports_only_highlighting_and_playing_index_then_and_highlight_index() {
-        const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
-
-        struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, _image: Image) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_index_to_highlight(&self, index: u16) -> Result<Event, Error> {
+    fn render_state_when_features_supports_only_highlighting_and_playing_index_then_and_highlight_index() {
+        struct FakeFeatures {}
+        impl IndexSelector for FakeFeatures {
+            fn from_index_to_highlight(&self, index: usize) -> R<Event> {
                 return Ok(Event::Midi([index as u8, index as u8, index as u8, index as u8]));
             }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
         }
+        impl Features for FakeFeatures {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
         let state = get_state_with(
-            &FAKE_EVENT_TRANSFORMER,
+            Arc::new(FakeFeatures {}),
             vec![],
             PLAYING(42),
             sender,
@@ -378,52 +290,14 @@ mod test {
     }
 
     #[test]
-    fn render_state_when_transformer_supports_nothing_and_playing_index_then_do_nothing() {
-        const FAKE_EVENT_TRANSFORMER: FakeEventTransformer = FakeEventTransformer {};
-
-        struct FakeEventTransformer {}
-        impl EventTransformer for FakeEventTransformer {
-            fn get_grid_size(&self) -> Result<(usize, usize), Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_app_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_color_palette_index(&self, _event: Event) -> Result<Option<u16>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn into_coordinates(&self, _event: Event) -> Result<Option<(u16, u16)>, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_image(&self, _image: Image) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_index_to_highlight(&self, _index: u16) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_app_colors(&self, _app_colors: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-
-            fn from_color_palette(&self, _color_palette: Vec<[u8; 3]>) -> Result<Event, Error> {
-                return Err(Error::Unsupported);
-            }
-        }
+    fn render_state_when_features_supports_nothing_and_playing_index_then_do_nothing() {
+        struct FakeFeatures {}
+        impl Features for FakeFeatures {}
 
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Out>(32);
 
         let state = get_state_with(
-            &FAKE_EVENT_TRANSFORMER,
+            Arc::new(FakeFeatures {}),
             vec![],
             PLAYING(42),
             sender,
@@ -438,7 +312,7 @@ mod test {
     }
 
     fn get_state_with(
-        transformer: &'static (dyn EventTransformer + Sync),
+        features: Arc<dyn Features + Sync + Send>,
         tracks: Vec<SpotifyTrack>,
         playback: PlaybackState,
         sender: Sender<Out>,
@@ -454,8 +328,8 @@ mod test {
 
         Arc::new(State {
             client,
-            input_transformer: transformer,
-            output_transformer: transformer,
+            input_features: Arc::clone(&features),
+            output_features: Arc::clone(&features),
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(tracks)),

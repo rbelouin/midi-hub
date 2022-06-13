@@ -9,7 +9,7 @@ pub async fn poll_events<F, Fut>(
     mut in_receiver: Receiver<In>,
     play_or_pause: F,
 ) where
-    F: Fn(Arc<State>, u16) -> Fut + Copy,
+    F: Fn(Arc<State>, usize) -> Fut + Copy,
     Fut: Future<Output = ()>,
 {
     while let Some(event) = in_receiver.recv().await {
@@ -23,12 +23,12 @@ pub async fn poll_events<F, Fut>(
 }
 
 async fn handle_event<F, Fut>(state: Arc<State>, play_or_pause: F, event: In) where
-    F: Fn(Arc<State>, u16) -> Fut,
+    F: Fn(Arc<State>, usize) -> Fut,
     Fut: Future<Output = ()>,
 {
     match event {
         In::Midi(event) => {
-            match state.input_transformer.into_index(event) {
+            match state.input_features.into_index(event) {
                 Ok(Some(index)) => {
                     track_last_action(Arc::clone(&state));
                     play_or_pause(Arc::clone(&state), index).await;
@@ -67,7 +67,7 @@ mod test {
             out_sender,
         );
 
-        async fn play_or_pause(state: Arc<State>, _: u16) {
+        async fn play_or_pause(state: Arc<State>, _: usize) {
             state.sender.send(Out::Server(ServerCommand::SpotifyPlay {
                 track_id: "spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string(),
                 access_token: "access_token".to_string(),
@@ -105,7 +105,7 @@ mod test {
             out_sender,
         );
 
-        async fn play_or_pause(state: Arc<State>, _: u16) {
+        async fn play_or_pause(state: Arc<State>, _: usize) {
             state.sender.send(Out::Server(ServerCommand::SpotifyPlay {
                 track_id: "spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string(),
                 access_token: "access_token".to_string(),
@@ -135,7 +135,7 @@ mod test {
         let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Out>(32);
         let state = get_state_with_last_action_and_sender(Instant::now(), out_sender);
 
-        async fn play_or_pause(state: Arc<State>, _: u16) {
+        async fn play_or_pause(state: Arc<State>, _: usize) {
             state.sender.send(Out::Server(ServerCommand::SpotifyPlay {
                 track_id: "spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string(),
                 access_token: "access_token".to_string(),
@@ -164,7 +164,7 @@ mod test {
         let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Out>(32);
         let state = get_state_with_last_action_and_sender(Instant::now() - Duration::from_millis(5_000), out_sender);
 
-        async fn play_or_pause(state: Arc<State>, index: u16) {
+        async fn play_or_pause(state: Arc<State>, index: usize) {
             state.sender.send(Out::Server(ServerCommand::SpotifyPlay {
                 track_id: format!("spotify:track:{}", index),
                 access_token: "access_token".to_string(),
@@ -219,8 +219,8 @@ mod test {
 
         Arc::new(State {
             client,
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
+            input_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            output_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(last_action),
             tracks: Mutex::new(Some(vec![])),

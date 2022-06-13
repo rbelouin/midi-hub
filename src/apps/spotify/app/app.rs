@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::apps::App;
 use crate::image::Image;
-use crate::midi::EventTransformer;
+use crate::midi::features::Features;
 
 use super::super::config::Config;
 use super::super::client::*;
@@ -31,8 +31,8 @@ pub type Receiver<T> = tokio::sync::mpsc::Receiver<T>;
 
 pub struct State {
     pub client: Box<dyn SpotifyApiClient + Send + Sync>,
-    pub input_transformer: &'static (dyn EventTransformer + Sync),
-    pub output_transformer: &'static (dyn EventTransformer + Sync),
+    pub input_features: Arc<dyn Features + Sync + Send>,
+    pub output_features: Arc<dyn Features + Sync + Send>,
     pub access_token: Mutex<Option<String>>,
     pub last_action: Mutex<Instant>,
     pub tracks: Mutex<Option<Vec<SpotifyTrack>>>,
@@ -45,8 +45,8 @@ pub struct State {
 pub enum PlaybackState {
     PAUSED,
     PAUSING,
-    REQUESTED(u16),
-    PLAYING(u16),
+    REQUESTED(usize),
+    PLAYING(usize),
 }
 
 pub struct Spotify {
@@ -58,16 +58,16 @@ impl Spotify {
     pub fn new(
         config: Config,
         client: Box<dyn SpotifyApiClient + Send + Sync>,
-        input_transformer: &'static (dyn EventTransformer + Sync),
-        output_transformer: &'static (dyn EventTransformer + Sync),
+        input_features: Arc<dyn Features + Sync + Send>,
+        output_features: Arc<dyn Features + Sync + Send>,
     ) -> Self {
         let (in_sender, in_receiver) = mpsc::channel::<In>(32);
         let (out_sender, out_receiver) = mpsc::channel::<Out>(32);
 
         let state = Arc::new(State {
             client,
-            input_transformer,
-            output_transformer,
+            input_features,
+            output_features,
             access_token: Mutex::new(None),
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),

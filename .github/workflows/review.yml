@@ -10,7 +10,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libportmidi-dev
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
+          override: true
       - uses: actions-rs/cargo@v1
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}

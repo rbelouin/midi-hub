@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use std::collections::HashMap;
 
-use crate::midi::{Error, EventTransformer, Connections, InputPort, OutputPort};
+use crate::midi::{Error, Connections, InputPort, OutputPort};
+use crate::midi::features::Features;
 
 pub mod config;
 
@@ -24,7 +26,7 @@ impl Devices {
             id: device.id.clone(),
             name: device.name.clone(),
             device_type: device.device_type.clone(),
-            transformer: device.transformer,
+            features: Arc::clone(&device.features),
             port,
         })
     }
@@ -36,7 +38,7 @@ impl Devices {
             id: device.id.clone(),
             name: device.name.clone(),
             device_type: device.device_type.clone(),
-            transformer: device.transformer,
+            features: Arc::clone(&device.features),
             port,
         })
     }
@@ -51,9 +53,9 @@ impl From<&config::Config> for Devices {
                 id: device_id.to_string(),
                 name: device_config.name.to_string(),
                 device_type: device_config.device_type.clone(),
-                transformer: match device_config.device_type {
-                    config::DeviceType::Default => default::transformer(),
-                    config::DeviceType::LaunchpadPro => launchpadpro::transformer(),
+                features: match device_config.device_type {
+                    config::DeviceType::Default => Arc::new(default::DefaultFeatures::new()),
+                    config::DeviceType::LaunchpadPro => Arc::new(launchpadpro::LaunchpadProFeatures::new()),
                 },
             });
         }
@@ -66,7 +68,7 @@ pub struct Device {
     pub id: String,
     pub name: String,
     pub device_type: config::DeviceType,
-    pub transformer: &'static (dyn EventTransformer + Sync),
+    pub features: Arc<dyn Features + Sync + Send>,
 }
 
 impl Device {
@@ -83,7 +85,7 @@ pub struct DeviceWithInputPort<'a> {
     pub id: String,
     pub name: String,
     pub device_type: config::DeviceType,
-    pub transformer: &'static (dyn EventTransformer + Sync),
+    pub features: Arc<dyn Features + Sync + Send>,
     pub port: InputPort<'a>,
 }
 
@@ -91,6 +93,6 @@ pub struct DeviceWithOutputPort<'a> {
     pub id: String,
     pub name: String,
     pub device_type: config::DeviceType,
-    pub transformer: &'static (dyn EventTransformer + Sync),
+    pub features: Arc<dyn Features + Sync + Send>,
     pub port: OutputPort<'a>,
 }

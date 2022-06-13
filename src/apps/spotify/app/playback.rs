@@ -5,7 +5,7 @@ use super::app::*;
 
 pub async fn play_or_pause(
     state: Arc<State>,
-    index: u16,
+    index: usize,
 ) {
     let playback = state.playback.lock().unwrap().clone();
     match playback {
@@ -22,7 +22,7 @@ pub async fn play_or_pause(
 
 async fn play(
     state: Arc<State>,
-    index: u16,
+    index: usize,
 ) {
     // Find the track corresponding to the given index
     let track = state.tracks.lock().unwrap().as_ref()
@@ -221,8 +221,8 @@ mod test {
 
         Arc::new(State {
             client,
-            input_transformer: crate::midi::devices::default::transformer(),
-            output_transformer: crate::midi::devices::default::transformer(),
+            input_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
+            output_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             access_token: Mutex::new(Some("access_token".to_string())),
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(vec![lingus(), conscious_club()])),

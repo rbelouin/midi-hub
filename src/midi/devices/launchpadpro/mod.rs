@@ -1,10 +1,13 @@
 mod device;
 
-mod image;
-mod index;
+mod app_selector;
+mod color_palette;
+mod grid_controller;
+mod image_renderer;
+mod index_selector;
 
 pub use device::LaunchpadPro;
-pub use device::transformer;
+pub use device::LaunchpadProFeatures;
 
 #[cfg(test)]
 mod test {
