@@ -16,7 +16,8 @@ mod test {
     fn render_rainbow_and_blink() {
         use std::convert::From;
         use crate::image::Image;
-        use crate::midi::{Connections, FromImage, FromSelectedIndex, Writer};
+        use crate::midi::{Connections, Writer};
+        use crate::midi::features::{ImageRenderer, IndexSelector};
         use super::*;
 
         let connections = Connections::new().unwrap();
@@ -41,16 +42,14 @@ mod test {
                     bytes,
                 };
 
-                let result = LaunchpadProEvent::from_image(image).and_then(|event| {
-                    return launchpadpro.write(event);
-                });
+                let features = LaunchpadProFeatures::new();
 
+                let event = features.from_image(image).expect("should be able to create an event from an image");
+                let result = launchpadpro.write(event);
                 assert!(result.is_ok(), "The LaunchpadPro could not render the given image");
 
-                let result = LaunchpadProEvent::from_selected_index(27).and_then(|event| {
-                    return launchpadpro.write(event);
-                });
-
+                let event = features.from_index_to_highlight(27).expect("should be able to create an event from an index");
+                let result = launchpadpro.write(event);
                 assert!(result.is_ok(), "The LaunchpadPro could not make the square pad blink");
             },
             Err(_) => {
