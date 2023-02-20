@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::apps::ServerCommand;
 use super::app::*;
 
 pub async fn play_or_pause(
@@ -35,13 +34,7 @@ async fn play(
                 .clone()
                 .expect("it should not be possible to have tracks in memory without a valid access_token");
 
-            let command = ServerCommand::SpotifyPlay {
-                track_id: track.uri,
-                access_token,
-            };
-
-            // Send the command to the web client via the web server
-            state.sender.send(command.into()).await
+            state.client.start_or_resume_playback(access_token, vec![track.uri], None).await
                 .unwrap_or_else(|err| eprintln!("[spotify] could not send play command: {}", err));
 
             let mut playback = state.playback.lock().unwrap();
@@ -52,8 +45,11 @@ async fn play(
 }
 
 async fn pause(state: Arc<State>) {
-    // Send the command to the web client via the web server
-    state.sender.send(ServerCommand::SpotifyPause.into()).await
+    let access_token = state.access_token.lock().unwrap()
+        .clone()
+        .expect("it should not be possible to have a playing track without a valid access_token");
+
+    state.client.pause_playback(access_token).await
         .unwrap_or_else(|err| eprintln!("[spotify] could not send pause command: {}", err));
 
     let mut playback = state.playback.lock().unwrap();
@@ -66,9 +62,10 @@ mod test {
     use std::time::Instant;
     use std::sync::Mutex;
 
+    use mockall::predicate::*;
+
     use tokio::runtime::Builder;
-    use tokio::sync::mpsc::{Sender, channel};
-    use tokio::sync::mpsc::error::TryRecvError;
+    use tokio::sync::mpsc::channel;
 
     use crate::apps::spotify::config::Config;
     use crate::apps::spotify::client::{MockSpotifyApiClient, SpotifyAlbum, SpotifyAlbumImage, SpotifyTrack};
@@ -131,87 +128,81 @@ mod test {
     }
 
     #[test]
-    fn play_or_pause_when_no_song_playing_then_play_song_at_index_and_return_some() {
-        let (sender, mut receiver) = channel::<Out>(32);
-        let state = get_state_with_playing_and_sender(PAUSED, sender);
+    fn play_or_pause_when_no_song_playing_then_call_start_or_resume() {
+        let mut client = MockSpotifyApiClient::new();
+        client.expect_start_or_resume_playback()
+            .times(1)
+            .with(eq("access_token".to_string()), eq(vec!["spotify:track:5vmFVIJV9XN1l01YsFuKL3".to_string()]), eq(None))
+            .returning(|_, _, _| Ok(()));
+        client.expect_pause_playback().never();
+
+        let state = get_state_with_playing_and_client(PAUSED, client);
 
         with_runtime(async move {
             play_or_pause(Arc::clone(&state), 1).await;
         });
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Ok(Out::Server(ServerCommand::SpotifyPlay {
-            track_id: "spotify:track:5vmFVIJV9XN1l01YsFuKL3".to_string(),
-            access_token: "access_token".to_string(),
-        })));
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn play_or_pause_when_no_song_playing_and_index_out_of_bound_then_ignore_and_return_none() {
-        let (sender, mut receiver) = channel::<Out>(32);
-        let state = get_state_with_playing_and_sender(PAUSING, sender);
+    fn play_or_pause_when_no_song_playing_and_index_out_of_bound_then_ignore() {
+        let mut client = MockSpotifyApiClient::new();
+        client.expect_start_or_resume_playback().never();
+        client.expect_pause_playback().never();
+
+        let state = get_state_with_playing_and_client(PAUSING, client);
 
         with_runtime(async move {
             play_or_pause(Arc::clone(&state), 24).await;
         });
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn play_or_pause_when_index_matches_song_currently_playing_then_pause_and_return_none() {
-        let (sender, mut receiver) = channel::<Out>(32);
-        let state = get_state_with_playing_and_sender(PLAYING(1), sender);
+    fn play_or_pause_when_index_matches_song_currently_playing_then_call_pause() {
+        let mut client = MockSpotifyApiClient::new();
+        client.expect_start_or_resume_playback().never();
+        client.expect_pause_playback()
+            .times(1)
+            .with(eq("access_token".to_string()))
+            .returning(|_| Ok(()));
+
+        let state = get_state_with_playing_and_client(PLAYING(1), client);
 
         with_runtime(async move {
             play_or_pause(Arc::clone(&state), 1).await;
         });
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Ok(Out::Server(ServerCommand::SpotifyPause)));
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn play_or_pause_when_index_does_not_match_song_currently_playing_then_play_and_return_some() {
-        let (sender, mut receiver) = channel::<Out>(32);
-        let state = get_state_with_playing_and_sender(REQUESTED(1), sender);
+    fn play_or_pause_when_index_does_not_match_song_currently_playing_then_call_play_or_resume() {
+        let mut client = MockSpotifyApiClient::new();
+        client.expect_start_or_resume_playback()
+            .times(1)
+            .with(eq("access_token".to_string()), eq(vec!["spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string()]), eq(None))
+            .returning(|_, _, _| Ok(()));
+        client.expect_pause_playback().never();
+
+        let state = get_state_with_playing_and_client(REQUESTED(1), client);
 
         with_runtime(async move {
             play_or_pause(Arc::clone(&state), 0).await;
         });
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Ok(Out::Server(ServerCommand::SpotifyPlay {
-            track_id: "spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string(),
-            access_token: "access_token".to_string(),
-        })));
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn play_or_pause_when_song_playing_and_index_out_of_bound_then_ignore_and_return_none() {
-        let (sender, mut receiver) = channel::<Out>(32);
-        let state = get_state_with_playing_and_sender(PLAYING(0), sender);
+    fn play_or_pause_when_song_playing_and_index_out_of_bound_then_ignore() {
+        let mut client = MockSpotifyApiClient::new();
+        client.expect_start_or_resume_playback().never();
+        client.expect_pause_playback().never();
+
+        let state = get_state_with_playing_and_client(PLAYING(0), client);
 
         with_runtime(async move {
             play_or_pause(Arc::clone(&state), 24).await;
         });
-
-        let event = receiver.try_recv();
-        assert_eq!(event, Err(TryRecvError::Disconnected));
     }
 
-    fn get_state_with_playing_and_sender(playback: PlaybackState, sender: Sender<Out>) -> Arc<State> {
-        let client = Box::new(MockSpotifyApiClient::new());
+    fn get_state_with_playing_and_client(playback: PlaybackState, client: MockSpotifyApiClient) -> Arc<State> {
+        let (sender, _) = channel::<Out>(32);
         let config = Config {
             playlist_id: "playlist_id".to_string(),
             client_id: "client_id".to_string(),
@@ -220,7 +211,7 @@ mod test {
         };
 
         Arc::new(State {
-            client,
+            client: Box::new(client),
             input_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             output_features: Arc::new(crate::midi::devices::default::DefaultFeatures::new()),
             access_token: Mutex::new(Some("access_token".to_string())),
