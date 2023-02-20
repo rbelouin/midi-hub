@@ -17,11 +17,16 @@
     youtubeReady = true;
   };
 
-  function playSpotifyTrack(trackId, accessToken) {
-    if (!spotifyReady) {
-      console.log('Spotify Player is not ready yet');
-      return;
+  function selectSpotifyScreen() {
+    document.querySelector('[data-screen]').dataset.screen = 'spotify';
+    if (youtubePlayer) {
+      youtubePlayer.destroy();
+      youtubePlayer = undefined;
     }
+  }
+
+  function initSpotifyPlayer(accessToken) {
+    selectSpotifyScreen();
 
     spotifyToken = accessToken;
     if (!spotifyPlayer) {
@@ -35,7 +40,22 @@
         document.querySelector('.spotify-current-track__title').textContent = state.track_window.current_track.name;
         document.querySelector('.spotify-current-track__artists').textContent = state.track_window.current_track.artists.map(artist => artist.name).join(', ');
       });
+
+      spotifyPlayer.addListener('ready', (args) => {
+        spotifyDeviceId = args.device_id;
+      });
+
+      spotifyPlayer.connect();
     }
+  }
+
+  function playSpotifyTrack(trackId, accessToken) {
+    if (!spotifyReady) {
+      console.log('Spotify Player is not ready yet');
+      return;
+    }
+
+    initSpotifyPlayer(accessToken);
 
     if (spotifyDeviceId) {
       fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`, {
@@ -58,11 +78,17 @@
           },
         });
       });
-      spotifyPlayer.connect();
     }
   }
 
+  function selectYoutubeScreen() {
+    document.querySelector('[data-screen]').dataset.screen = 'youtube';
+    if (spotifyPlayer) { spotifyPlayer.pause(); }
+  }
+
   function playYoutubeVideo(videoId) {
+    selectYoutubeScreen();
+
     if (!youtubeReady) {
       console.log('YouTube Player is not ready yet');
       return;
@@ -95,19 +121,14 @@
     const command = JSON.parse(message.data);
     console.log(`Received command`, command);
     if (command.SpotifyPlay) {
-      document.querySelector('[data-screen]').dataset.screen = 'spotify';
-      if (youtubePlayer) {
-        youtubePlayer.destroy();
-        youtubePlayer = undefined;
-      }
       playSpotifyTrack(command.SpotifyPlay.track_id, command.SpotifyPlay.access_token);
     } else if (command === 'SpotifyPause') {
       if (spotifyPlayer) {
         spotifyPlayer.pause();
       }
+    } else if (command.SpotifyToken) {
+      initSpotifyPlayer(command.SpotifyToken.access_token);
     } else if (command.YoutubePlay) {
-      document.querySelector('[data-screen]').dataset.screen = 'youtube';
-      if (spotifyPlayer) { spotifyPlayer.pause(); }
       playYoutubeVideo(command.YoutubePlay.video_id);
     } else if (command === 'YoutubePause') {
       if (youtubePlayer) {
