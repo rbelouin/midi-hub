@@ -32,6 +32,23 @@ pub trait SpotifyApiClient {
         &self,
         token: String
     ) -> SpotifyApiResult<Option<SpotifyPlaybackState>>;
+
+    async fn start_or_resume_playback(
+        &self,
+        token: String,
+        uris: Vec<String>,
+        device_id: Option<String>,
+    ) -> SpotifyApiResult<()>;
+
+    async fn pause_playback(
+        &self,
+        token: String,
+    ) -> SpotifyApiResult<()>;
+
+    async fn get_available_devices(
+        &self,
+        token: String
+    ) -> SpotifyApiResult<SpotifyDevices>;
 }
 
 #[derive(Debug)]
@@ -104,4 +121,16 @@ pub  struct SpotifyPlaylistItem {
 pub struct SpotifyPlaybackState {
     pub is_playing: bool,
     pub item: SpotifyTrack,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SpotifyDevices {
+    pub devices: Vec<SpotifyDevice>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SpotifyDevice {
+    pub id: String,
+    pub is_active: bool,
+    pub name: String,
 }

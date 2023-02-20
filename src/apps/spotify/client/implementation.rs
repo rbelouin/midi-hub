@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::future::Future;
+use std::marker::Sized;
 use std::time::Instant;
 
 use base64::encode;
 use reqwest::{Client, Response, StatusCode};
 use reqwest::header::HeaderMap;
+use serde::Serialize;
 
 use super::*;
 
@@ -101,6 +104,44 @@ impl SpotifyApiClient for SpotifyApiClientImpl {
             }
         }).await;
     }
+
+    async fn start_or_resume_playback(
+        &self,
+        token: String,
+        uris: Vec<String>,
+        device_id: Option<String>,
+    ) -> SpotifyApiResult<()> {
+        return log(format!("Start or resume playback of {:?}", uris), || async {
+            let query = device_id.map(|id| format!("?device_id={}", id)).unwrap_or("".to_string());
+            let body = HashMap::from([("uris", uris)]);
+            let _ = put(format!("https://api.spotify.com/v1/me/player/play{}", query), token, &body).await?;
+            return Ok(());
+        }).await;
+    }
+
+    async fn pause_playback(
+        &self,
+        token: String,
+    ) -> SpotifyApiResult<()> {
+        return log("Pause playback".to_string(), || async {
+            let _ = put("https://api.spotify.com/v1/me/player/pause".to_string(), token, "").await?;
+            return Ok(());
+        }).await;
+    }
+
+    async fn get_available_devices(
+        &self,
+        token: String,
+    ) -> SpotifyApiResult<SpotifyDevices> {
+        return log("Get available devices".to_string(), || async {
+            let response = get("https://api.spotify.com/v1/me/player/devices".to_string(), token).await?;
+            return response
+                .json::<SpotifyDevices>()
+                .await
+                .map_err(SpotifyApiError::from);
+        }).await;
+    }
+
 }
 
 fn prepare_headers(client_id: &String, client_secret: &String) -> HeaderMap {
@@ -126,6 +167,22 @@ async fn get(url: String, token: String) -> SpotifyApiResult<Response> {
     let client = Client::new();
     let response = client.get(url)
         .headers(headers(token))
+        .send()
+        .await
+        .map_err(SpotifyApiError::from)?;
+
+    if response.status() == StatusCode::UNAUTHORIZED {
+        return Err(SpotifyApiError::Unauthorized);
+    } else {
+        return Ok(response);
+    }
+}
+
+async fn put<P: Serialize + ?Sized>(url: String, token: String, json_body: &P) -> SpotifyApiResult<Response> {
+    let client = Client::new();
+    let response = client.put(url)
+        .headers(headers(token))
+        .json(json_body)
         .send()
         .await
         .map_err(SpotifyApiError::from)?;
@@ -173,13 +230,29 @@ mod test {
 
                 assert_eq!(playlist_tracks.len(), 64, "The playlist under test should have 64 tracks");
 
-                let playback_state = client
+                client
                     .get_playback_state(token.access_token.clone())
                     .await
-                    .unwrap();
+                    .expect("Playback state should be retrieved successfully");
 
-                // Hopefully, no one is using the test account during the test execution!
-                assert_eq!(playback_state, None, "No tracks should be playing at the moment");
+                client
+                    .get_available_devices(token.access_token.clone())
+                    .await
+                    .expect("Available devices should be retrieved successfully");
+
+                client
+                    .start_or_resume_playback(
+                        token.access_token.clone(),
+                        vec!["spotify:track:7vDtu5DsQEDHag1iJkSkOB".to_string()],
+                        None,
+                    )
+                    .await
+                    .expect("Should be able to start or resume playback");
+
+                client
+                    .pause_playback(token.access_token.clone())
+                    .await
+                    .expect("Should be able to pause playback");
             });
     }
 }
