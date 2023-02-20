@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::apps::ServerCommand;
 use super::app::*;
 
 pub async fn play_or_pause(
@@ -33,6 +34,14 @@ async fn play(
             let access_token = state.access_token.lock().unwrap()
                 .clone()
                 .expect("it should not be possible to have tracks in memory without a valid access_token");
+
+            let command = ServerCommand::SpotifyToken {
+                access_token: access_token.clone(),
+            };
+
+            // Send the token to the web player so that it can render the current track
+            state.sender.send(command.into()).await
+                .unwrap_or_else(|err| eprintln!("[spotify] could not send token command: {}", err));
 
             state.client.start_or_resume_playback(access_token, vec![track.uri], None).await
                 .unwrap_or_else(|err| eprintln!("[spotify] could not send play command: {}", err));
