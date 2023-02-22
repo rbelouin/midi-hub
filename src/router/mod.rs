@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use dialoguer::{theme::ColorfulTheme, Select};
 use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc::error::TryRecvError;
 
@@ -161,7 +162,7 @@ pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
     let apps = apps::configure()?;
 
     let app_names = apps.get_configured_app_names();
-    let links = configure_links(app_names)?;
+    let links = configure_links(app_names, devices.keys().collect())?;
 
     return Ok(Config {
         devices,
@@ -170,24 +171,23 @@ pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
     });
 }
 
-fn configure_links(app_names: Vec<String>) -> Result<HashMap<String, (String, String)>, Box<dyn std::error::Error>> {
+fn configure_links(app_names: Vec<String>, devices: Vec<&String>) -> Result<HashMap<String, (String, String)>, Box<dyn std::error::Error>> {
     let mut links = HashMap::new();
 
     for app_name in app_names {
-        let mut input_name = String::new();
-        let mut output_name = String::new();
+        let input_selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!("[router] what device do you want to use as an input for this app: {}?", app_name))
+            .items(devices.as_slice())
+            .interact()?;
+        let input_name = devices[input_selection];
 
-        println!("[router] what device do you want to use as an input for this app: {}?", app_name);
-        std::io::stdin().read_line(&mut input_name)?;
-        let input_name = input_name.trim().to_string();
-        println!("");
+        let output_selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!("[router] what device do you want to use as an output for this app: {}?", app_name))
+            .items(devices.as_slice())
+            .interact()?;
+        let output_name = devices[output_selection];
 
-        println!("[router] what device do you want to use as an output for this app: {}?", app_name);
-        std::io::stdin().read_line(&mut output_name)?;
-        let output_name = output_name.trim().to_string();
-        println!("");
-
-        links.insert(app_name, (input_name, output_name));
+        links.insert(app_name, (input_name.clone(), output_name.clone()));
     }
 
     return Ok(links);
