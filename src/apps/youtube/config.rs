@@ -1,5 +1,7 @@
 use serde::{Serialize, Deserialize};
 
+use dialoguer::{theme::ColorfulTheme, Input};
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub api_key: String,
@@ -7,18 +9,17 @@ pub struct Config {
 }
 
 pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
-    let mut api_key = String::new();
-    let mut playlist_id = String::new();
+    let api_key = Input::<String>::with_theme(&ColorfulTheme::default())
+        .with_prompt("[youtube] please enter your api key:")
+        .interact()?
+        .trim()
+        .to_string();
 
-    println!("[youtube] please enter your api key: ");
-    std::io::stdin().read_line(&mut api_key)?;
-    let api_key = api_key.trim().to_string();
-    println!("");
-
-    println!("[youtube] please enter the id of the playlist you want to play via midi-hub:");
-    std::io::stdin().read_line(&mut playlist_id)?;
-    let playlist_id = playlist_id.trim().to_string();
-    println!("");
+    let playlist_id = Input::<String>::with_theme(&ColorfulTheme::default())
+        .with_prompt("[youtube] please enter the id of the playlist you want to play via midi-hub:")
+        .interact()?
+        .trim()
+        .to_string();
 
     return Ok(Config {
         api_key,
