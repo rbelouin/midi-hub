@@ -73,6 +73,19 @@ impl SpotifyApiClient for SpotifyApiClientImpl {
             .map_err(SpotifyApiError::from)?);
     }
 
+    async fn get_playlists(
+        &self,
+        token: String,
+    ) -> SpotifyApiResult<SpotifyPlaylists> {
+        return log("Get user playlists".to_string(), || async {
+            let response = get("https://api.spotify.com/v1/me/playlists".to_string(), token).await?
+                .json::<SpotifyPlaylists>()
+                .await
+                .map_err(SpotifyApiError::from)?;
+
+            return Ok(response);
+        }).await;
+    }
     async fn get_playlist_tracks(
         &self,
         token: String,
@@ -224,7 +237,7 @@ mod test {
                 ).await.unwrap();
 
                 let playlist_tracks = client
-                    .get_playlist_tracks(token.access_token.clone(), "1vsF6HQZWDv6BHPPBevJMG".to_string())
+                    .get_playlist_tracks(token.access_token.clone(), "1ZYlRaAwcozXVcw2lWXmtn".to_string())
                     .await
                     .unwrap();
 

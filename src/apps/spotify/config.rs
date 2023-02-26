@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use dialoguer::{theme::ColorfulTheme, Input, Select};
 use serde::{Serialize, Deserialize};
 use tokio::runtime::Builder;
 use warp::Filter;
@@ -16,28 +17,40 @@ pub struct Config {
 }
 
 pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
-    let mut client_id = String::new();
-    let mut client_secret = String::new();
-    let mut playlist_id = String::new();
+    let client_id: String = Input::<String>::with_theme(&ColorfulTheme::default())
+        .with_prompt("[spotify] please enter your app client_id:")
+        .interact()?
+        .trim()
+        .to_string();
 
-    println!("[spotify] please enter your app client_id: ");
-    std::io::stdin().read_line(&mut client_id)?;
-    let client_id = client_id.trim().to_string();
-    println!("");
-
-    println!("[spotify] please enter your app client_secret: ");
-    std::io::stdin().read_line(&mut client_secret)?;
-    let client_secret = client_secret.trim().to_string();
-    println!("");
+    let client_secret: String = Input::<String>::with_theme(&ColorfulTheme::default())
+        .with_prompt("[spotify] please enter your app client_secret:")
+        .interact()?
+        .trim()
+        .to_string();
 
     println!("[spotify] using the client credentials to authorize the user...");
-    let refresh_token = authorize_blocking(&client_id, &client_secret)?;
+    let token = authorize_blocking(&client_id, &client_secret)?;
+    let refresh_token = token.refresh_token.clone()
+        .expect("[spotify] the authorization flow should have exposed a refresh token");
     println!("");
 
-    println!("[spotify] please enter the id of the playlist you want to play via midi-hub:");
-    std::io::stdin().read_line(&mut playlist_id)?;
-    let playlist_id = playlist_id.trim().to_string();
-    println!("");
+    println!("[spotify] retrieving available playlists...");
+    let playlists = get_playlists_blocking(&token)?;
+    let items = playlists.items.iter().map(|item| {
+        return format!("{} ({} tracks)", item.name, item.tracks.total);
+    }).collect::<Vec<String>>();
+
+    if items.is_empty() {
+        panic!("[spotify] no playlists could be found!");
+    }
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("[spotify] please select the playlist you want to play via midi-hub:")
+        .items(items.as_slice())
+        .interact()?;
+
+    let playlist_id = playlists.items[selection].id.clone();
 
     return Ok(Config {
         playlist_id,
@@ -47,7 +60,33 @@ pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
     });
 }
 
-fn authorize_blocking(client_id: &String, client_secret: &String) -> Result<String, Box<dyn std::error::Error>> {
+fn get_playlists_blocking(token: &SpotifyTokenResponse) -> Result<SpotifyPlaylists, Box<dyn std::error::Error>> {
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let access_token = token.access_token.clone();
+    let result = runtime.block_on(runtime.spawn(async move {
+        let client = SpotifyApiClientImpl::new();
+        return client.get_playlists(access_token).await
+            .map_err(|err| {
+                eprintln!("[spotify] could not retrieve user playlists: {}", err);
+                return Box::new(err);
+            });
+    })).map_err(|err| {
+        eprintln!("[spotify] could not wait for the asynchronous authorization process to complete: {}", err);
+        return Box::new(std::io::Error::from(err));
+    });
+
+    return match result {
+        Ok(Ok(playlists)) => Ok(playlists),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(err),
+    };
+}
+fn authorize_blocking(client_id: &String, client_secret: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     let runtime = Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -74,7 +113,7 @@ fn authorize_blocking(client_id: &String, client_secret: &String) -> Result<Stri
     };
 }
 
-async fn authorize(client_id: &String, client_secret: &String) -> Result<String, Box<dyn std::error::Error>> {
+async fn authorize(client_id: &String, client_secret: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     spawn_authorization_browser(client_id).await?;
     return spawn_authorization_server(client_id, client_secret).await;
 }
@@ -84,7 +123,7 @@ async fn spawn_authorization_browser(client_id: &String) -> Result<(), Box<dyn s
     tokio::time::sleep(Duration::from_millis(3000)).await;
     let client_id = client_id.clone();
     let result = tokio::task::spawn_blocking(move || {
-        return open::that(format!("https://accounts.spotify.com/authorize?client_id={}&response_type=code&scope=streaming+user-read-email+user-modify-playback-state+user-read-private&redirect_uri=http://localhost:12345/callback", client_id)).map_err(|err| {
+        return open::that(format!("https://accounts.spotify.com/authorize?client_id={}&response_type=code&scope=streaming+user-read-email+user-modify-playback-state+user-read-private+playlist-read-private&redirect_uri=http://localhost:12345/callback", client_id)).map_err(|err| {
             eprintln!("[spotify] error when opening the browser tab: {}", err);
             Box::new(std::io::Error::from(err))
         });
@@ -100,7 +139,7 @@ async fn spawn_authorization_browser(client_id: &String) -> Result<(), Box<dyn s
     };
 }
 
-async fn spawn_authorization_server(client_id: &String, client_secret: &String) -> Result<String, Box<dyn std::error::Error>> {
+async fn spawn_authorization_server(client_id: &String, client_secret: &String) -> Result<SpotifyTokenResponse, Box<dyn std::error::Error>> {
     println!("[spotify] starting a server listening on 0.0.0.0:12345");
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1usize);
     let (send, recv) = tokio::sync::oneshot::channel::<String>();
@@ -130,5 +169,5 @@ async fn spawn_authorization_server(client_id: &String, client_secret: &String) 
     let code = recv.await.map_err(|err| Box::new(err))?;
     let client = SpotifyApiClientImpl::new();
     let token = client.request_token(client_id, client_secret, &code).await?;
-    return token.refresh_token.ok_or(Box::new(std::io::Error::from(std::io::ErrorKind::InvalidData)));
+    return Ok(token);
 }

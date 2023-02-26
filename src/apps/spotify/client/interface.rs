@@ -22,6 +22,11 @@ pub trait SpotifyApiClient {
         refresh_token: &String,
     ) -> SpotifyApiResult<SpotifyTokenResponse>;
 
+    async fn get_playlists(
+        &self,
+        token: String,
+    ) -> SpotifyApiResult<SpotifyPlaylists>;
+
     async fn get_playlist_tracks(
         &self,
         token: String,
@@ -133,4 +138,21 @@ pub struct SpotifyDevice {
     pub id: String,
     pub is_active: bool,
     pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SpotifyPlaylists {
+    pub items: Vec<SpotifyPlaylist>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SpotifyPlaylist {
+    pub id: String,
+    pub name: String,
+    pub tracks: SpotifyPlaylistTracks,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SpotifyPlaylistTracks {
+    pub total: u16,
 }

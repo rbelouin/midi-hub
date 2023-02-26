@@ -4,6 +4,8 @@ use std::sync::Arc;
 use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
+use dialoguer::{theme::ColorfulTheme, Select};
+
 use crate::image::Image;
 pub use crate::midi::Event as MidiEvent;
 pub use crate::midi::features::Features;
@@ -117,14 +119,15 @@ pub fn configure() -> Result<Config, Box<dyn std::error::Error>> {
 fn configure_app<F, C>(name: &'static str, conf: F) -> Result<Option<C>, Box<dyn std::error::Error>> where
     F: FnOnce() -> Result<C, Box<dyn std::error::Error>>
 {
-    let mut configure = String::new();
+    let items = ["yes", "no"];
 
-    println!("[apps] do you want to configure the {} application? (yes|no)", name);
-    std::io::stdin().read_line(&mut configure)?;
-    let configure = configure.trim();
-    println!("");
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt(format!("[apps] do you want to configure the {} application?", name))
+        .default(0)
+        .items(&items)
+        .interact()?;
 
-    return Ok(if configure == "yes" {
+    return Ok(if items[selection] == "yes" {
         Some(conf()?)
     } else {
         None

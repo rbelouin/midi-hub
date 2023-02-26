@@ -86,6 +86,20 @@ impl Connections {
         let output_port = self.create_output_port(name)?;
         return Ok((input_port, output_port));
     }
+
+    pub fn get_device_names(&self) -> Vec<String> {
+        let input_device_names = self.input_devices.keys().collect::<Vec<&String>>();
+        let output_device_names = self.output_devices.keys().collect::<Vec<&String>>();
+
+        let mut device_names = vec![input_device_names, output_device_names].concat()
+            .into_iter()
+            .map(|name| name.clone())
+            .collect::<Vec<String>>();
+
+        device_names.sort();
+        device_names.dedup();
+        return device_names;
+    }
 }
 
 #[cfg(test)]
