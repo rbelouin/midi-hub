@@ -29,6 +29,7 @@ impl Image {
         });
     }
 
+    #[allow(dead_code)]
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Image, Error> {
         let file = File::open(path).map_err(|_| Error::FileOpenError)?;
         let mut decoder = Decoder::new(BufReader::new(file));

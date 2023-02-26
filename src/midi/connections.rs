@@ -81,6 +81,7 @@ impl Connections {
         });
     }
 
+    #[allow(dead_code)]
     pub fn create_bidirectional_ports(&self, name: &String) -> Result<(InputPort, OutputPort), Error> {
         let input_port = self.create_input_port(name)?;
         let output_port = self.create_output_port(name)?;
