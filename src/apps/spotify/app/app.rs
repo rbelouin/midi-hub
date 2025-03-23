@@ -37,6 +37,7 @@ pub struct State {
     pub last_action: Mutex<Instant>,
     pub tracks: Mutex<Option<Vec<SpotifyTrack>>>,
     pub playback: Mutex<PlaybackState>,
+    pub device_id: Mutex<Option<String>>,
     pub config: Config,
     pub sender: Sender<Out>,
 }
@@ -72,6 +73,7 @@ impl Spotify {
             last_action: Mutex::new(Instant::now() - DELAY),
             tracks: Mutex::new(None),
             playback: Mutex::new(PlaybackState::PAUSED),
+            device_id: Mutex::new(None),
             config,
             sender: out_sender,
         });

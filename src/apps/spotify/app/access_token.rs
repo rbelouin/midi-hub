@@ -183,6 +183,7 @@ mod test {
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(None),
             playback: Mutex::new(PlaybackState::PAUSED),
+            device_id: Mutex::new(Some("device_id".to_string())),
             config,
             sender,
         })

@@ -28,14 +28,11 @@ mod tests {
     use super::*;
     use jpeg_encoder::{Encoder, ColorType};
 
-    // This test relies on network calls, on Spotify’s CDN being up, and on the album cover not to
-    // change. There’s a risk it becomes flaky, but I’ll keep it until the cost/benefit balance
-    // becomes bad.
     #[test]
     fn test_load_cover_from_url_and_scale_to_8x8() {
         let rt  =  tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let url = "https://i.scdn.co/image/ab67616d00004851a5c51e96d2583bfb3e45d504".to_string();
+            let url = "https://raw.githubusercontent.com/rbelouin/midi-hub/refs/heads/master/src/image/test/cover.jpg".to_string();
             let image = Image::from_url(&url).await.expect("Expected the image to be downloadable");
             let scaled_image = scale(&image, 8, 8).expect("Expected the image to be scalable");
 
