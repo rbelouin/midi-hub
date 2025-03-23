@@ -6,26 +6,26 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-portmidi = "^0.2"
+portmidi = "^0.3"
 signal-hook = "^0.3"
-reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
+reqwest = { version = "^0.12", features = ["json"] }
+tokio = { version = "^1.44", features = ["full"] }
+serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
-url = "^2.2"
+url = "^2.5"
 querystring = "^1.1"
-base64 = "^0.13"
-open = "^2.0"
-rand = "^0.8"
-jpeg-decoder = "^0.2"
-jpeg-encoder = "^0.4"
-insta = "^1.10"
+base64 = "^0.22"
+open = "^5.3"
+rand = "^0.9"
+jpeg-decoder = "^0.3"
+jpeg-encoder = "^0.6"
+insta = "^1.42"
 warp = "^0.3"
 futures-util = "^0.3"
-toml = "^0.5"
+toml = "^0.8"
 async-trait = "^0.1"
-mockall = "^0.11"
-dialoguer = "^0.10"
+mockall = "^0.13"
+dialoguer = "^0.11"
 
 # These features are only used for testing purposes.
 # Only turn one at a time, as portmidi will fail on macOS if initialized/dropped multiple times.
