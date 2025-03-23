@@ -16,7 +16,9 @@ use warp::ws::{Message, WebSocket, Ws};
 pub enum Command {
     SpotifyPlay { track_id: String, access_token: String },
     SpotifyPause,
+    SpotifyTokenRequest,
     SpotifyToken { access_token: String },
+    SpotifyDeviceId { device_id: String },
     YoutubePlay { video_id: String },
     YoutubePause,
 }

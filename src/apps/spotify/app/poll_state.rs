@@ -383,6 +383,7 @@ mod test {
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(tracks)),
             playback: Mutex::new(playback),
+            device_id: Mutex::new(Some("device_id".to_string())),
             config,
             sender,
         })

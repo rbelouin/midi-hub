@@ -9,6 +9,7 @@
 
   global.onSpotifyWebPlaybackSDKReady = () => {
     console.log('Spotify Player is ready');
+    ws.send(JSON.stringify('SpotifyTokenRequest'));
     spotifyReady = true;
   };
 
@@ -43,6 +44,7 @@
 
       spotifyPlayer.addListener('ready', (args) => {
         spotifyDeviceId = args.device_id;
+        ws.send(JSON.stringify({ SpotifyDeviceId: { device_id: spotifyDeviceId } }));
       });
 
       spotifyPlayer.connect();

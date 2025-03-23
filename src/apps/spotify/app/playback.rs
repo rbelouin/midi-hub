@@ -35,6 +35,8 @@ async fn play(
                 .clone()
                 .expect("it should not be possible to have tracks in memory without a valid access_token");
 
+            let device_id = state.device_id.lock().unwrap().clone();
+
             let command = ServerCommand::SpotifyToken {
                 access_token: access_token.clone(),
             };
@@ -43,7 +45,7 @@ async fn play(
             state.sender.send(command.into()).await
                 .unwrap_or_else(|err| eprintln!("[spotify] could not send token command: {}", err));
 
-            state.client.start_or_resume_playback(access_token, vec![track.uri], None).await
+            state.client.start_or_resume_playback(access_token, vec![track.uri], device_id).await
                 .unwrap_or_else(|err| eprintln!("[spotify] could not send play command: {}", err));
 
             let mut playback = state.playback.lock().unwrap();
@@ -141,7 +143,7 @@ mod test {
         let mut client = MockSpotifyApiClient::new();
         client.expect_start_or_resume_playback()
             .times(1)
-            .with(eq("access_token".to_string()), eq(vec!["spotify:track:5vmFVIJV9XN1l01YsFuKL3".to_string()]), eq(None))
+            .with(eq("access_token".to_string()), eq(vec!["spotify:track:5vmFVIJV9XN1l01YsFuKL3".to_string()]), eq(Some("device_id".to_string())))
             .returning(|_, _, _| Ok(()));
         client.expect_pause_playback().never();
 
@@ -186,7 +188,7 @@ mod test {
         let mut client = MockSpotifyApiClient::new();
         client.expect_start_or_resume_playback()
             .times(1)
-            .with(eq("access_token".to_string()), eq(vec!["spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string()]), eq(None))
+            .with(eq("access_token".to_string()), eq(vec!["spotify:track:68d6ZfyMUYURol2y15Ta2Y".to_string()]), eq(Some("device_id".to_string())))
             .returning(|_, _, _| Ok(()));
         client.expect_pause_playback().never();
 
@@ -227,6 +229,7 @@ mod test {
             last_action: Mutex::new(Instant::now()),
             tracks: Mutex::new(Some(vec![lingus(), conscious_club()])),
             playback: Mutex::new(playback),
+            device_id: Mutex::new(Some("device_id".to_string())),
             config,
             sender,
         })

@@ -2,6 +2,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::apps::ServerCommand;
+
 use super::app::*;
 
 pub async fn poll_events<F, Fut>(
@@ -35,6 +37,22 @@ async fn handle_event<F, Fut>(state: Arc<State>, play_or_pause: F, event: In) wh
                 },
                 _ => {},
             }
+        },
+        In::Server(ServerCommand::SpotifyTokenRequest) => {
+            println!("[spotify] received token request: {:?}", ServerCommand::SpotifyTokenRequest);
+            let access_token = state.access_token.lock().unwrap()
+                .clone()
+                .unwrap_or("".into());
+
+            match state.sender.send(ServerCommand::SpotifyToken { access_token }.into()).await {
+                Ok(_) => println!("[spotify] token sent to the client"),
+                Err(_) => eprintln!("[spotify] could not send token to the client"),
+            }
+        },
+        In::Server(ServerCommand::SpotifyDeviceId { device_id }) => {
+            println!("[spotify] setting device id: {}", device_id);
+            let mut new_device_id = state.device_id.lock().unwrap();
+            *new_device_id = Some(device_id);
         },
         _ => {},
     }
@@ -225,6 +243,7 @@ mod test {
             last_action: Mutex::new(last_action),
             tracks: Mutex::new(Some(vec![])),
             playback: Mutex::new(PlaybackState::PAUSED),
+            device_id: Mutex::new(Some("device_id".to_string())),
             config,
             sender,
         })
