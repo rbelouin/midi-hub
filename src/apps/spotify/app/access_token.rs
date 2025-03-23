@@ -150,7 +150,7 @@ mod test {
         with_runtime(async move {
             let result = with_access_token(state, |token| async {
                 let token = token;
-                assert_eq!(token.clone(), "fresh_access_token".clone());
+                assert_eq!(token.clone(), "fresh_access_token");
 
                 let result: SpotifyApiResult<String> = Err(
                     SpotifyApiError::Other(Box::new(std::io::Error::from(std::io::ErrorKind::NotConnected)))

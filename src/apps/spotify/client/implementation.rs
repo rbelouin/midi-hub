@@ -3,7 +3,7 @@ use std::future::Future;
 use std::marker::Sized;
 use std::time::Instant;
 
-use base64::encode;
+use base64::prelude::*;
 use reqwest::{Client, Response, StatusCode};
 use reqwest::header::HeaderMap;
 use serde::Serialize;
@@ -141,24 +141,10 @@ impl SpotifyApiClient for SpotifyApiClientImpl {
             return Ok(());
         }).await;
     }
-
-    async fn get_available_devices(
-        &self,
-        token: String,
-    ) -> SpotifyApiResult<SpotifyDevices> {
-        return log("Get available devices".to_string(), || async {
-            let response = get("https://api.spotify.com/v1/me/player/devices".to_string(), token).await?;
-            return response
-                .json::<SpotifyDevices>()
-                .await
-                .map_err(SpotifyApiError::from);
-        }).await;
-    }
-
 }
 
 fn prepare_headers(client_id: &String, client_secret: &String) -> HeaderMap {
-    let base64_authorization = encode(format!("{}:{}", client_id, client_secret));
+    let base64_authorization = BASE64_STANDARD.encode(format!("{}:{}", client_id, client_secret));
     let mut headers = HeaderMap::new();
     headers.insert("Authorization", format!("Basic {}", base64_authorization).parse().unwrap());
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
@@ -247,11 +233,6 @@ mod test {
                     .get_playback_state(token.access_token.clone())
                     .await
                     .expect("Playback state should be retrieved successfully");
-
-                client
-                    .get_available_devices(token.access_token.clone())
-                    .await
-                    .expect("Available devices should be retrieved successfully");
 
                 client
                     .start_or_resume_playback(
