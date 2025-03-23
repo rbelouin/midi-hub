@@ -49,11 +49,6 @@ pub trait SpotifyApiClient {
         &self,
         token: String,
     ) -> SpotifyApiResult<()>;
-
-    async fn get_available_devices(
-        &self,
-        token: String
-    ) -> SpotifyApiResult<SpotifyDevices>;
 }
 
 #[derive(Debug)]

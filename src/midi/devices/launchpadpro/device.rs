@@ -5,12 +5,11 @@ use crate::midi::features::Features;
 
 pub struct LaunchpadPro<C> where C: Reader + Writer {
     pub connection: C,
-    pub features: LaunchpadProFeatures,
 }
 
 impl<C> From<C> for LaunchpadPro<C> where C: Reader + Writer {
     fn from(connection: C) -> LaunchpadPro<C> {
-        return LaunchpadPro { connection, features: LaunchpadProFeatures::new() };
+        return LaunchpadPro { connection };
     }
 }
 

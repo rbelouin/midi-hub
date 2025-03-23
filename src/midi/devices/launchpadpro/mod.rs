@@ -6,7 +6,6 @@ mod grid_controller;
 mod image_renderer;
 mod index_selector;
 
-pub use device::LaunchpadPro;
 pub use device::LaunchpadProFeatures;
 
 #[cfg(test)]
@@ -18,6 +17,7 @@ mod test {
         use crate::image::Image;
         use crate::midi::{Connections, Writer};
         use crate::midi::features::{ImageRenderer, IndexSelector};
+        use super::device::LaunchpadPro;
         use super::*;
 
         let connections = Connections::new().unwrap();

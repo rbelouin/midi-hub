@@ -24,9 +24,6 @@ impl Devices {
         let port = device.get_input_port(connections)?;
         Ok(DeviceWithInputPort {
             id: device.id.clone(),
-            name: device.name.clone(),
-            device_type: device.device_type.clone(),
-            features: Arc::clone(&device.features),
             port,
         })
     }
@@ -36,9 +33,6 @@ impl Devices {
         let port = device.get_output_port(connections)?;
         Ok(DeviceWithOutputPort {
             id: device.id.clone(),
-            name: device.name.clone(),
-            device_type: device.device_type.clone(),
-            features: Arc::clone(&device.features),
             port,
         })
     }
@@ -52,7 +46,6 @@ impl From<&config::Config> for Devices {
             devices.insert(device_id.clone(), Device {
                 id: device_id.to_string(),
                 name: device_config.name.to_string(),
-                device_type: device_config.device_type.clone(),
                 features: match device_config.device_type {
                     config::DeviceType::Default => Arc::new(default::DefaultFeatures::new()),
                     config::DeviceType::LaunchpadPro => Arc::new(launchpadpro::LaunchpadProFeatures::new()),
@@ -67,7 +60,6 @@ impl From<&config::Config> for Devices {
 pub struct Device {
     pub id: String,
     pub name: String,
-    pub device_type: config::DeviceType,
     pub features: Arc<dyn Features + Sync + Send>,
 }
 
@@ -83,16 +75,10 @@ impl Device {
 
 pub struct DeviceWithInputPort<'a> {
     pub id: String,
-    pub name: String,
-    pub device_type: config::DeviceType,
-    pub features: Arc<dyn Features + Sync + Send>,
     pub port: InputPort<'a>,
 }
 
 pub struct DeviceWithOutputPort<'a> {
     pub id: String,
-    pub name: String,
-    pub device_type: config::DeviceType,
-    pub features: Arc<dyn Features + Sync + Send>,
     pub port: OutputPort<'a>,
 }
